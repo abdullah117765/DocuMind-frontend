@@ -1,0 +1,88 @@
+.app-shell {
+  width: min(100% - 2rem, 70rem);
+  min-height: 100vh;
+  margin-inline: auto;
+  display: grid;
+  align-content: center;
+  gap: 3rem;
+  padding-block: 4rem;
+}
+
+.hero {
+  text-align: center;
+}
+
+.hero__logos {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.hero__logo {
+  width: 5rem;
+  height: 5rem;
+}
+
+.hero h1 {
+  margin: 0 0 0.75rem;
+  color: var(--color-heading);
+  font-size: clamp(2.25rem, 6vw, 4rem);
+}
+
+.counter-card {
+  display: grid;
+  justify-items: center;
+  gap: 1rem;
+  padding: 2rem;
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+  background: var(--color-surface);
+}
+
+.button {
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--color-accent);
+  border-radius: 0.5rem;
+  color: white;
+  background: var(--color-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.button:hover {
+  filter: brightness(1.08);
+}
+
+.button:focus-visible,
+.resource-card:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
+.resources {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.resource-card {
+  padding: 1.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+  color: inherit;
+  background: var(--color-surface);
+  text-decoration: none;
+}
+
+.resource-card h2 {
+  margin: 0 0 0.5rem;
+  color: var(--color-heading);
+}
+
+@media (max-width: 40rem) {
+  .resources {
+    grid-template-columns: 1fr;
+  }
+}

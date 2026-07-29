@@ -1,0 +1,32 @@
+:root {
+  --color-background: #f7f7fb;
+  --color-surface: #ffffff;
+  --color-heading: #15121b;
+  --color-text: #5f5968;
+  --color-border: #dedbe4;
+  --color-accent: #6d3ee8;
+  --color-focus: #bca9f5;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: var(--color-text);
+  background: var(--color-background);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+h2,
+p {
+  margin-top: 0;
+}
