@@ -1,6 +1,5 @@
-import { ApiError } from './errors.js'
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
+import { ApiError } from './apiError.js'
+import { API_BASE_URL } from '../constants/env.js'
 
 export async function apiRequest(path, options = {}) {
   const hasBody = options.body !== undefined

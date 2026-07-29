@@ -6,21 +6,38 @@ A React application built with Vite and organized by feature.
 
 ```text
 src/
-|-- app/                 # Root application component and app-level styles
-|-- assets/              # Static assets imported by components
-|-- config/              # Environment and application configuration
-|-- features/            # Feature modules
-|   |-- counter/
-|   `-- home/
-|-- services/
-|   `-- api/             # API client, response helpers, and API errors
-|-- index.css            # Global styles and design tokens
-`-- main.jsx             # React entry point
+|-- features/
+|   |-- auth/
+|   |   |-- components/
+|   |   |-- pages/
+|   |   |-- hooks/
+|   |   |-- services/
+|   |   `-- context/
+|   |-- users/
+|   |   |-- components/
+|   |   |-- pages/
+|   |   |-- services/
+|   |   `-- hooks/
+|   `-- dashboard/
+|       |-- components/
+|       `-- pages/
+|-- shared/
+|   |-- components/
+|   |   |-- Button/
+|   |   |-- Input/
+|   |   |-- Modal/
+|   |   `-- Loader/
+|   |-- hooks/
+|   |-- utils/
+|   |-- constants/
+|   `-- assets/
+|-- routes/
+|-- App.jsx
+`-- main.jsx
 ```
 
-New feature-specific components, hooks, and services should remain inside their
-feature folder. Only code shared by multiple features belongs in a top-level
-shared folder or in `services`.
+Feature-specific code stays inside its feature. Only reusable UI, hooks,
+utilities, constants, and assets belong under `src/shared`.
 
 ## API contract
 
