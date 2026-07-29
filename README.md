@@ -6,16 +6,16 @@ A React application built with Vite and organized by feature.
 
 ```text
 src/
-├── app/                 # Root application component and app-level styles
-├── assets/              # Static assets imported by components
-├── config/              # Environment and application configuration
-├── features/            # Feature modules
-│   ├── counter/
-│   └── home/
-├── services/
-│   └── api/             # API client, response helpers, and API errors
-├── index.css            # Global styles and design tokens
-└── main.jsx             # React entry point
+|-- app/                 # Root application component and app-level styles
+|-- assets/              # Static assets imported by components
+|-- config/              # Environment and application configuration
+|-- features/            # Feature modules
+|   |-- counter/
+|   `-- home/
+|-- services/
+|   `-- api/             # API client, response helpers, and API errors
+|-- index.css            # Global styles and design tokens
+`-- main.jsx             # React entry point
 ```
 
 New feature-specific components, hooks, and services should remain inside their
