@@ -1,13 +1,14 @@
 import { Link } from '../../../routes/RouterElements.jsx'
 
 export function AuthLayout({
+  artwork,
   children,
   description,
   footer,
   title,
 }) {
   return (
-    <div className="auth-page">
+    <div className={`auth-page${artwork ? ' auth-page--split' : ''}`}>
       <Link aria-label="AI Document Intelligence home" className="brand" to="/">
         <span aria-hidden="true" className="brand__mark">
           AI
@@ -15,17 +16,21 @@ export function AuthLayout({
         <span>Document Intelligence</span>
       </Link>
 
-      <main className="auth-card">
-        <header className="auth-card__header">
-          <p className="eyebrow">Secure account</p>
-          <h1>{title}</h1>
-          {description && <p>{description}</p>}
-        </header>
+      <div className="auth-page__content">
+        <main className="auth-card">
+          <header className="auth-card__header">
+            <p className="eyebrow">Secure account</p>
+            <h1>{title}</h1>
+            {description && <p>{description}</p>}
+          </header>
 
-        {children}
+          {children}
 
-        {footer && <footer className="auth-card__footer">{footer}</footer>}
-      </main>
+          {footer && <footer className="auth-card__footer">{footer}</footer>}
+        </main>
+
+        {artwork}
+      </div>
 
       <p className="auth-page__note">
         Your authentication tokens stay protected in secure browser cookies.

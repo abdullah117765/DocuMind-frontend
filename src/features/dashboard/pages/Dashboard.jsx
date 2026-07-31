@@ -1,7 +1,9 @@
 import { Link } from '../../../routes/RouterElements.jsx'
+import { useAccessControl } from '../../access-control/hooks/useAccessControl.js'
 import { useAuth } from '../../auth/hooks/useAuth.js'
 
 export function Dashboard() {
+  const { effectiveRoles, selectedOrganization, status } = useAccessControl()
   const { session, user } = useAuth()
 
   return (
@@ -31,6 +33,29 @@ export function Dashboard() {
       </section>
 
       <section className="card security-card">
+        <div>
+          <p className="eyebrow">Workspace access</p>
+          <h2>
+            {selectedOrganization?.organization.name ??
+              (status === 'loading' ? 'Loading access…' : 'No organization')}
+          </h2>
+          <p>
+            {effectiveRoles.length
+              ? `Effective role${effectiveRoles.length === 1 ? '' : 's'}: ${effectiveRoles
+                  .map(({ name }) => name)
+                  .join(', ')}.`
+              : 'Review your assigned roles and effective permissions.'}
+          </p>
+        </div>
+        <Link
+          className="button button--secondary button--link"
+          to="/account/access"
+        >
+          View my access
+        </Link>
+      </section>
+
+      <section className="card security-card dashboard-section">
         <div>
           <p className="eyebrow">Security</p>
           <h2>Review where you are signed in</h2>

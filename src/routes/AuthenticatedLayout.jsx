@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { OrganizationSwitcher } from '../features/access-control/components/OrganizationSwitcher.jsx'
+import { useAccessControl } from '../features/access-control/hooks/useAccessControl.js'
 import { useAuth } from '../features/auth/hooks/useAuth.js'
 import { Alert } from '../shared/components/Alert.jsx'
 import { Button } from '../shared/components/Button/Button.jsx'
@@ -6,6 +8,7 @@ import { NavLink } from './RouterElements.jsx'
 import { useNavigate } from './routerHooks.js'
 
 export function AuthenticatedLayout({ children }) {
+  const { hasPermission } = useAccessControl()
   const { signOut, user } = useAuth()
   const [error, setError] = useState(null)
   const [isSigningOut, setIsSigningOut] = useState(false)
@@ -38,8 +41,17 @@ export function AuthenticatedLayout({ children }) {
           <span>Document Intelligence</span>
         </NavLink>
 
+        <OrganizationSwitcher />
+
         <nav aria-label="Primary navigation" className="app-nav">
           <NavLink to="/dashboard">Overview</NavLink>
+          <NavLink to="/account/access">My access</NavLink>
+          {hasPermission('users.manage') && (
+            <>
+              <NavLink to="/organization/roles">Roles</NavLink>
+              <NavLink to="/organization/members">Members</NavLink>
+            </>
+          )}
           <NavLink to="/account/sessions">Active devices</NavLink>
         </nav>
 

@@ -1,3 +1,6 @@
+import { Members } from '../features/access-control/pages/Members.jsx'
+import { MyAccess } from '../features/access-control/pages/MyAccess.jsx'
+import { Roles } from '../features/access-control/pages/Roles.jsx'
 import { DeviceSessions } from '../features/auth/pages/DeviceSessions.jsx'
 import { ForgotPassword } from '../features/auth/pages/ForgotPassword.jsx'
 import { Login } from '../features/auth/pages/Login.jsx'
@@ -46,7 +49,10 @@ export function AppRoutes() {
 
   const protectedPages = {
     '/dashboard': <Dashboard />,
+    '/account/access': <MyAccess />,
     '/account/sessions': <DeviceSessions />,
+    '/organization/members': <Members />,
+    '/organization/roles': <Roles />,
   }
   const protectedPage = protectedPages[pathname]
 

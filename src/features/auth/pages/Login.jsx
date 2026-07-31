@@ -1,5 +1,6 @@
 import { Link } from '../../../routes/RouterElements.jsx'
 import { useLocation, useNavigate } from '../../../routes/routerHooks.js'
+import loginDocumentArtwork from '../../../shared/assets/login-document-3d.png'
 import { Alert } from '../../../shared/components/Alert.jsx'
 import { getFieldErrors } from '../../../shared/utils/apiResponse.js'
 import { AuthLayout } from '../components/AuthLayout.jsx'
@@ -27,6 +28,26 @@ export function Login() {
 
   return (
     <AuthLayout
+      artwork={
+        <aside
+          aria-label="AI-powered document processing"
+          className="login-visual"
+        >
+          <div className="login-visual__copy">
+            <p className="eyebrow">Intelligent workspace</p>
+            <h2>Turn every document into a confident decision.</h2>
+          </div>
+          <img
+            alt=""
+            className="login-visual__image"
+            src={loginDocumentArtwork}
+          />
+          <div className="login-visual__status">
+            <span aria-hidden="true">✓</span>
+            Secure document verification
+          </div>
+        </aside>
+      }
       description="Use your verified account to continue."
       footer={
         <>
