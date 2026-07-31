@@ -39,18 +39,42 @@ src/
 Feature-specific code stays inside its feature. Only reusable UI, hooks,
 utilities, constants, and assets belong under `src/shared`.
 
-## API contract
+## Authentication integration
 
-The API utilities support the response envelopes documented in
-`must follow.txt`:
+Copy `.env.example` to `.env` before starting the app:
 
-- `apiRequest` sends and accepts JSON and throws a normalized `ApiError`.
-- `getResponseData` unwraps successful response data.
-- `getPagination` reads pagination metadata.
-- `getValidationIssues` returns field-level validation issues.
+```env
+VITE_API_BASE_URL=http://localhost:3000/api
+```
 
-Copy `.env.example` to `.env` and update `VITE_API_BASE_URL` before connecting
-the application to a backend.
+The NestJS backend must allow the exact Vite origin:
+
+```env
+FRONTEND_URL=http://localhost:5173
+```
+
+Authentication uses access and refresh tokens in `HttpOnly` cookies. Every
+request includes browser credentials, and sensitive mutations first obtain a
+signed token from `GET /auth/csrf`. Tokens are never stored in local storage.
+Expired access cookies are recovered with one coordinated refresh request so
+refresh-token rotation is safe when multiple API requests fail together.
+
+Implemented routes:
+
+- `/register`
+- `/login`
+- `/verify-email?token=...`
+- `/forgot-password`
+- `/reset-password?email=...`
+- `/dashboard`
+- `/account/sessions`
+
+The app restores the current user from `/auth/me`, protects private routes,
+maps backend validation details onto form fields, supports password-reset OTPs
+with leading zeroes, and provides single-device and all-device logout.
+
+The backend Swagger contract is available at
+`http://localhost:3000/api/docs`.
 
 ## Commands
 

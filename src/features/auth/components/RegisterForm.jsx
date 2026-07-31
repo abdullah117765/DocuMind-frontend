@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
+import { validatePassword } from './validation.js'
 
-export function RegisterForm({ onSubmit, isLoading = false }) {
+export function RegisterForm({ fieldErrors = {}, onSubmit, isLoading = false }) {
   const [values, setValues] = useState({
-    name: '',
     email: '',
     password: '',
+    confirmPassword: '',
   })
+  const [clientErrors, setClientErrors] = useState({})
 
   function handleChange(event) {
     setValues((current) => ({
@@ -18,14 +20,61 @@ export function RegisterForm({ onSubmit, isLoading = false }) {
 
   function handleSubmit(event) {
     event.preventDefault()
-    onSubmit(values)
+    const passwordError = validatePassword(values.password)
+    const nextErrors = {
+      ...(passwordError ? { password: passwordError } : {}),
+      ...(values.password !== values.confirmPassword
+        ? { confirmPassword: 'Passwords do not match.' }
+        : {}),
+    }
+
+    setClientErrors(nextErrors)
+
+    if (Object.keys(nextErrors).length > 0) return
+
+    void onSubmit({
+      email: values.email,
+      password: values.password,
+    }).catch(() => {})
   }
 
   return (
     <form className="form" onSubmit={handleSubmit}>
-      <Input label="Name" name="name" onChange={handleChange} required value={values.name} />
-      <Input label="Email" name="email" onChange={handleChange} required type="email" value={values.email} />
-      <Input label="Password" name="password" onChange={handleChange} required type="password" value={values.password} />
+      <Input
+        autoComplete="email"
+        error={fieldErrors.email}
+        label="Email"
+        name="email"
+        onChange={handleChange}
+        placeholder="you@example.com"
+        required
+        type="email"
+        value={values.email}
+      />
+      <Input
+        autoComplete="new-password"
+        error={clientErrors.password || fieldErrors.password}
+        hint="8–64 characters with upper/lowercase, a number, and @ # $ % ^ & * !"
+        label="Password"
+        maxLength={64}
+        minLength={8}
+        name="password"
+        onChange={handleChange}
+        required
+        type="password"
+        value={values.password}
+      />
+      <Input
+        autoComplete="new-password"
+        error={clientErrors.confirmPassword}
+        label="Confirm password"
+        maxLength={64}
+        name="confirmPassword"
+        onChange={handleChange}
+        required
+        type="password"
+        value={values.confirmPassword}
+      />
       <Button disabled={isLoading} type="submit">
         {isLoading ? 'Creating account…' : 'Create account'}
       </Button>

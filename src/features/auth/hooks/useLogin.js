@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import { useAuth } from './useAuth.js'
-import { login as loginRequest } from '../services/authApi.js'
 
 export function useLogin() {
-  const { setUser } = useAuth()
+  const { signIn } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -12,9 +11,7 @@ export function useLogin() {
     setError(null)
 
     try {
-      const data = await loginRequest(credentials)
-      setUser(data.user)
-      return data
+      return await signIn(credentials)
     } catch (requestError) {
       setError(requestError)
       throw requestError

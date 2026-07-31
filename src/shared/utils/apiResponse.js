@@ -7,5 +7,15 @@ export function getPagination(response) {
 }
 
 export function getValidationIssues(error) {
-  return Array.isArray(error.details) ? error.details : []
+  return Array.isArray(error?.details) ? error.details : []
+}
+
+export function getFieldErrors(error) {
+  return getValidationIssues(error).reduce((fields, issue) => {
+    if (issue?.field && issue?.issue && !fields[issue.field]) {
+      fields[issue.field] = issue.issue
+    }
+
+    return fields
+  }, {})
 }

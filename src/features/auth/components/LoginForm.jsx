@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
 
-export function LoginForm({ onSubmit, isLoading = false }) {
+export function LoginForm({ fieldErrors = {}, onSubmit, isLoading = false }) {
   const [credentials, setCredentials] = useState({ email: '', password: '' })
 
   function handleChange(event) {
@@ -14,23 +14,29 @@ export function LoginForm({ onSubmit, isLoading = false }) {
 
   function handleSubmit(event) {
     event.preventDefault()
-    onSubmit(credentials)
+    void onSubmit(credentials).catch(() => {})
   }
 
   return (
     <form className="form" onSubmit={handleSubmit}>
       <Input
+        autoComplete="email"
+        error={fieldErrors.email}
         label="Email"
         name="email"
         onChange={handleChange}
+        placeholder="you@example.com"
         required
         type="email"
         value={credentials.email}
       />
       <Input
+        autoComplete="current-password"
+        error={fieldErrors.password}
         label="Password"
         name="password"
         onChange={handleChange}
+        placeholder="Enter your password"
         required
         type="password"
         value={credentials.password}
