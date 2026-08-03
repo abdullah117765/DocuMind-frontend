@@ -5,6 +5,7 @@ export function useLogin() {
   const { signIn } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
+  const clearError = () => setError(null)
 
   async function login(credentials) {
     setIsLoading(true)
@@ -20,5 +21,5 @@ export function useLogin() {
     }
   }
 
-  return { error, isLoading, login }
+  return { clearError, error, isLoading, login }
 }

@@ -7,6 +7,7 @@ import { Login } from '../features/auth/pages/Login.jsx'
 import { Register } from '../features/auth/pages/Register.jsx'
 import { ResetPassword } from '../features/auth/pages/ResetPassword.jsx'
 import { VerifyEmail } from '../features/auth/pages/VerifyEmail.jsx'
+import { VerifyResetCode } from '../features/auth/pages/VerifyResetCode.jsx'
 import { useAuth } from '../features/auth/hooks/useAuth.js'
 import { Dashboard } from '../features/dashboard/pages/Dashboard.jsx'
 import { Loader } from '../shared/components/Loader/Loader.jsx'
@@ -45,6 +46,7 @@ export function AppRoutes() {
 
   if (pathname === '/verify-email') return <VerifyEmail />
   if (pathname === '/forgot-password') return <ForgotPassword />
+  if (pathname === '/verify-reset-code') return <VerifyResetCode />
   if (pathname === '/reset-password') return <ResetPassword />
 
   const protectedPages = {

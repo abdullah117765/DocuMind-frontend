@@ -71,7 +71,7 @@ export function AuthenticatedLayout({ children }) {
 
       {error && (
         <div className="shell-alert">
-          <Alert>{error.message}</Alert>
+          <Alert onDismiss={() => setError(null)}>{error.message}</Alert>
         </div>
       )}
 

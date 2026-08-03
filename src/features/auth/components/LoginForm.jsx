@@ -1,27 +1,45 @@
 import { useState } from 'react'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
+import { normalizeEmail, validateEmail } from './validation.js'
 
-export function LoginForm({ fieldErrors = {}, onSubmit, isLoading = false }) {
+export function LoginForm({
+  fieldErrors = {},
+  onChange,
+  onSubmit,
+  isLoading = false,
+}) {
   const [credentials, setCredentials] = useState({ email: '', password: '' })
+  const [clientErrors, setClientErrors] = useState({})
 
   function handleChange(event) {
+    const { name, value } = event.target
+
     setCredentials((current) => ({
       ...current,
-      [event.target.name]: event.target.value,
+      [name]: value,
     }))
+    setClientErrors((current) => ({ ...current, [name]: undefined }))
+    onChange?.()
   }
 
   function handleSubmit(event) {
     event.preventDefault()
-    void onSubmit(credentials).catch(() => {})
+    const email = normalizeEmail(credentials.email)
+    const emailError = validateEmail(email)
+
+    setClientErrors(emailError ? { email: emailError } : {})
+
+    if (emailError) return
+
+    void onSubmit({ ...credentials, email }).catch(() => {})
   }
 
   return (
     <form className="form" onSubmit={handleSubmit}>
       <Input
         autoComplete="email"
-        error={fieldErrors.email}
+        error={clientErrors.email || fieldErrors.email}
         label="Email"
         name="email"
         onChange={handleChange}

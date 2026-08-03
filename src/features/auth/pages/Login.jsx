@@ -1,19 +1,31 @@
+import { useState } from 'react'
 import { Link } from '../../../routes/RouterElements.jsx'
 import { useLocation, useNavigate } from '../../../routes/routerHooks.js'
 import loginDocumentArtwork from '../../../shared/assets/login-document-3d.png'
 import { Alert } from '../../../shared/components/Alert.jsx'
+import { useRouteFlashMessage } from '../../../shared/hooks/useRouteFlashMessage.js'
 import { getFieldErrors } from '../../../shared/utils/apiResponse.js'
 import { AuthLayout } from '../components/AuthLayout.jsx'
 import { LoginForm } from '../components/LoginForm.jsx'
+import { VerificationEmailResend } from '../components/VerificationEmailResend.jsx'
 import { useLogin } from '../hooks/useLogin.js'
 
 export function Login() {
-  const { error, isLoading, login } = useLogin()
+  const { clearError, error, isLoading, login } = useLogin()
   const location = useLocation()
   const navigate = useNavigate()
+  const { dismissMessage, message } = useRouteFlashMessage()
+  const [unverifiedEmail, setUnverifiedEmail] = useState('')
 
   async function handleLogin(credentials) {
-    await login(credentials)
+    try {
+      await login(credentials)
+    } catch (requestError) {
+      if (requestError?.details?.reason === 'EMAIL_NOT_VERIFIED') {
+        setUnverifiedEmail(credentials.email)
+      }
+      throw requestError
+    }
     const requestedPath = location.state?.from?.pathname
     const isSafeInternalPath =
       typeof requestedPath === 'string' &&
@@ -56,13 +68,27 @@ export function Login() {
       }
       title="Welcome back"
     >
-      {location.state?.message && (
-        <Alert tone="success">{location.state.message}</Alert>
+      {message && (
+        <Alert onDismiss={dismissMessage} tone="success">
+          {message}
+        </Alert>
       )}
-      {error && <Alert>{error.message}</Alert>}
+      {error && <Alert onDismiss={clearError}>{error.message}</Alert>}
+      {unverifiedEmail && (
+        <div className="auth-recovery-section">
+          <p className="supporting-copy">
+            Send a fresh verification link, then return here to sign in.
+          </p>
+          <VerificationEmailResend initialEmail={unverifiedEmail} />
+        </div>
+      )}
       <LoginForm
         fieldErrors={getFieldErrors(error)}
         isLoading={isLoading}
+        onChange={() => {
+          clearError()
+          setUnverifiedEmail('')
+        }}
         onSubmit={handleLogin}
       />
       <div className="form-link">

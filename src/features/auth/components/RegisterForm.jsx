@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
-import { validatePassword } from './validation.js'
+import {
+  normalizeEmail,
+  validateEmail,
+  validatePassword,
+} from './validation.js'
 
 export function RegisterForm({ fieldErrors = {}, onSubmit, isLoading = false }) {
   const [values, setValues] = useState({
@@ -12,16 +16,22 @@ export function RegisterForm({ fieldErrors = {}, onSubmit, isLoading = false }) 
   const [clientErrors, setClientErrors] = useState({})
 
   function handleChange(event) {
+    const { name, value } = event.target
+
     setValues((current) => ({
       ...current,
-      [event.target.name]: event.target.value,
+      [name]: value,
     }))
+    setClientErrors((current) => ({ ...current, [name]: undefined }))
   }
 
   function handleSubmit(event) {
     event.preventDefault()
+    const email = normalizeEmail(values.email)
+    const emailError = validateEmail(email)
     const passwordError = validatePassword(values.password)
     const nextErrors = {
+      ...(emailError ? { email: emailError } : {}),
       ...(passwordError ? { password: passwordError } : {}),
       ...(values.password !== values.confirmPassword
         ? { confirmPassword: 'Passwords do not match.' }
@@ -33,7 +43,7 @@ export function RegisterForm({ fieldErrors = {}, onSubmit, isLoading = false }) 
     if (Object.keys(nextErrors).length > 0) return
 
     void onSubmit({
-      email: values.email,
+      email,
       password: values.password,
     }).catch(() => {})
   }
@@ -42,7 +52,7 @@ export function RegisterForm({ fieldErrors = {}, onSubmit, isLoading = false }) 
     <form className="form" onSubmit={handleSubmit}>
       <Input
         autoComplete="email"
-        error={fieldErrors.email}
+        error={clientErrors.email || fieldErrors.email}
         label="Email"
         name="email"
         onChange={handleChange}

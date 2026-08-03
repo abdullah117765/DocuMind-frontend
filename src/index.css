@@ -454,6 +454,22 @@ p {
   margin: 1rem 0 0;
 }
 
+.auth-recovery-section {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.auth-recovery-section .supporting-copy {
+  margin: 0;
+}
+
+.verification-resend {
+  margin-top: 0.25rem;
+}
+
 .alert {
   display: grid;
   gap: 0.2rem;
@@ -463,6 +479,126 @@ p {
   border-radius: 0.75rem;
   font-size: 0.875rem;
   line-height: 1.5;
+}
+
+.alert--dismissible {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.alert__content {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.alert__dismiss {
+  border: 0;
+  padding: 0 0.15rem;
+  color: currentColor;
+  font: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  background: transparent;
+  cursor: pointer;
+}
+
+.resend-button {
+  width: auto;
+  padding: 0;
+  border: 0;
+  color: var(--accent);
+  background: transparent;
+  box-shadow: none;
+}
+
+.resend-button:hover:not(:disabled) {
+  color: var(--accent-dark);
+  background: transparent;
+  transform: none;
+  text-decoration: underline;
+}
+
+.reset-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 0 1.4rem;
+  padding: 0;
+  list-style: none;
+}
+
+.reset-steps__item {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-align: center;
+}
+
+.reset-steps__item:not(:last-child)::after {
+  position: absolute;
+  top: 0.8rem;
+  left: calc(50% + 1rem);
+  width: calc(100% - 2rem);
+  height: 2px;
+  background: var(--border);
+  content: '';
+}
+
+.reset-steps__number {
+  position: relative;
+  z-index: 1;
+  width: 1.7rem;
+  height: 1.7rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.reset-steps__item--active {
+  color: var(--heading);
+}
+
+.reset-steps__item--active .reset-steps__number,
+.reset-steps__item--complete .reset-steps__number {
+  border-color: var(--accent);
+  color: #fff;
+  background: var(--accent);
+}
+
+.reset-steps__item--complete:not(:last-child)::after {
+  background: var(--accent);
+}
+
+.reset-identity {
+  display: grid;
+  gap: 0.2rem;
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface-subtle);
+}
+
+.reset-identity span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.reset-identity strong {
+  overflow-wrap: anywhere;
+  color: var(--heading);
+}
+
+.otp-input {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 0.45rem;
+  text-align: center;
 }
 
 .alert--error {
@@ -475,6 +611,19 @@ p {
   border-color: #bce4cf;
   color: var(--success);
   background: var(--success-soft);
+}
+
+.alert--info {
+  border-color: #b9d4f8;
+  color: #174b86;
+  background: #eff6ff;
+}
+
+.reset-session-timer {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 600;
 }
 
 .loader {

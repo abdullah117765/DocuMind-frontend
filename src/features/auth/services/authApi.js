@@ -3,7 +3,6 @@ import { getResponseData } from '../../../shared/utils/apiResponse.js'
 import { csrfRequest } from '../../../shared/utils/csrfRequest.js'
 
 let refreshPromise = null
-const verificationRequests = new Map()
 
 function getBrowserName() {
   const userAgent = navigator.userAgent
@@ -64,29 +63,62 @@ export function refreshSession() {
 }
 
 export async function requestPasswordReset(email) {
-  return apiRequest('/auth/forgot-password', {
+  const response = await apiRequest('/auth/forgot-password', {
     method: 'POST',
     body: { email },
   })
+
+  return {
+    cooldownSeconds: Number(response.data?.cooldownSeconds) || 40,
+    expiresInSeconds: Number(response.data?.expiresInSeconds) || 120,
+    message: response.message,
+  }
 }
 
 export async function resetPassword(values) {
-  return apiRequest('/auth/reset-password', {
+  return csrfRequest('/auth/reset-password', {
     method: 'POST',
     body: values,
   })
 }
 
-export function verifyEmail(token) {
-  if (!verificationRequests.has(token)) {
-    const request = apiRequest(
-      `/auth/verify-email?token=${encodeURIComponent(token)}`,
-      { cache: 'no-store' },
-    )
-    verificationRequests.set(token, request)
-  }
+export async function verifyPasswordResetOtp(values) {
+  const response = await csrfRequest('/auth/verify-password-reset-otp', {
+    method: 'POST',
+    body: values,
+  })
 
-  return verificationRequests.get(token)
+  return {
+    ...getResponseData(response),
+    message: response.message,
+  }
+}
+
+export async function getPasswordResetSession() {
+  const response = await apiRequest('/auth/password-reset-session', {
+    cache: 'no-store',
+  })
+
+  return getResponseData(response)
+}
+
+export function verifyEmail(token) {
+  return apiRequest('/auth/verify-email', {
+    method: 'POST',
+    body: { token },
+  })
+}
+
+export async function resendVerificationEmail(email) {
+  const response = await apiRequest('/auth/resend-verification-email', {
+    method: 'POST',
+    body: { email },
+  })
+
+  return {
+    cooldownSeconds: Number(response.data?.cooldownSeconds) || 60,
+    message: response.message,
+  }
 }
 
 export function getSessions() {

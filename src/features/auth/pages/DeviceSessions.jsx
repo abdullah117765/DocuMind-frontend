@@ -32,6 +32,7 @@ export function DeviceSessions() {
   const [sessions, setSessions] = useState([])
   const [error, setError] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [message, setMessage] = useState('')
   const [workingSessionId, setWorkingSessionId] = useState('')
   const [isSigningOutAll, setIsSigningOutAll] = useState(false)
   const { clearAuthentication, signOutAll } = useAuth()
@@ -54,6 +55,14 @@ export function DeviceSessions() {
   useEffect(() => {
     void loadSessions()
   }, [])
+
+  useEffect(() => {
+    if (!message) return undefined
+
+    const timeoutId = window.setTimeout(() => setMessage(''), 5000)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [message])
 
   async function handleRevoke(session) {
     const confirmed = window.confirm(
@@ -82,6 +91,7 @@ export function DeviceSessions() {
       setSessions((current) =>
         current.filter((item) => item.id !== session.id),
       )
+      setMessage(`${fallbackDeviceName(session)} has been signed out.`)
     } catch (requestError) {
       setError(requestError)
     } finally {
@@ -125,7 +135,12 @@ export function DeviceSessions() {
         </Button>
       </header>
 
-      {error && <Alert>{error.message}</Alert>}
+      {message && (
+        <Alert onDismiss={() => setMessage('')} tone="success">
+          {message}
+        </Alert>
+      )}
+      {error && <Alert onDismiss={() => setError(null)}>{error.message}</Alert>}
 
       {isLoading ? (
         <Loader label="Loading active devices…" />

@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
+import {
+  normalizeEmail,
+  validateEmail,
+} from '../../auth/components/validation.js'
 
 export function MemberForm({
   isSaving,
@@ -10,6 +14,7 @@ export function MemberForm({
   roles = [],
 }) {
   const [email, setEmail] = useState(member?.user.email ?? '')
+  const [emailError, setEmailError] = useState('')
   const [roleIds, setRoleIds] = useState(
     member?.roles.map(({ id }) => id) ?? [],
   )
@@ -29,8 +34,17 @@ export function MemberForm({
 
   function handleSubmit(event) {
     event.preventDefault()
+    const normalizedEmail = normalizeEmail(email)
+
+    if (!member) {
+      const nextEmailError = validateEmail(normalizedEmail)
+      setEmailError(nextEmailError)
+
+      if (nextEmailError) return
+    }
+
     void onSubmit({
-      ...(member ? {} : { email: email.trim().toLowerCase() }),
+      ...(member ? {} : { email: normalizedEmail }),
       roleIds,
     })
   }
@@ -46,10 +60,14 @@ export function MemberForm({
         <Input
           autoComplete="email"
           disabled={isSaving}
+          error={emailError}
           hint="The user must already have a verified account."
           label="Email"
           maxLength="254"
-          onChange={(event) => setEmail(event.target.value)}
+          onChange={(event) => {
+            setEmail(event.target.value)
+            setEmailError('')
+          }}
           placeholder="employee@example.com"
           required
           type="email"
