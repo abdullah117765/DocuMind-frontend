@@ -25,9 +25,7 @@ function OrganizationSubscriptionContent() {
   const { hasPlatformPermission, selectedOrganization } = useAccessControl()
   const notifications = useNotifications()
   const organizationId = selectedOrganization.organization.id
-  const canEdit =
-    hasPlatformPermission('platform.organizations.manage') ||
-    hasPlatformPermission('platform.super_admin.assign')
+  const canEdit = hasPlatformPermission('platform.organizations.manage')
   const [error, setError] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)

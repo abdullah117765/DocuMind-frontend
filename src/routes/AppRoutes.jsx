@@ -1,4 +1,5 @@
 import { AcceptInvite } from '../features/access-control/pages/AcceptInvite.jsx'
+import { DiscoverOrganizations } from '../features/access-control/pages/DiscoverOrganizations.jsx'
 import { Members } from '../features/access-control/pages/Members.jsx'
 import { MyAccess } from '../features/access-control/pages/MyAccess.jsx'
 import { OrganizationSubscription } from '../features/access-control/pages/OrganizationSubscription.jsx'
@@ -14,6 +15,8 @@ import { VerifyEmail } from '../features/auth/pages/VerifyEmail.jsx'
 import { VerifyResetCode } from '../features/auth/pages/VerifyResetCode.jsx'
 import { useAuth } from '../features/auth/hooks/useAuth.js'
 import { Dashboard } from '../features/dashboard/pages/Dashboard.jsx'
+import { AuditLogs } from '../features/users/pages/AuditLogs.jsx'
+import { Users } from '../features/users/pages/Users.jsx'
 import { Loader } from '../shared/components/Loader/Loader.jsx'
 import { AuthenticatedLayout } from './AuthenticatedLayout.jsx'
 import { NotFound } from './NotFound.jsx'
@@ -23,7 +26,7 @@ import { useLocation } from './routerHooks.js'
 function FullPageLoader() {
   return (
     <main className="route-loader">
-      <Loader label="Checking your session…" />
+      <Loader label="Checking your session..." />
     </main>
   )
 }
@@ -36,9 +39,7 @@ export function AppRoutes() {
   if (pathname === '/') {
     if (status === 'loading') return <FullPageLoader />
 
-    return (
-      <Navigate replace to={isAuthenticated ? '/dashboard' : '/login'} />
-    )
+    return <Navigate replace to={isAuthenticated ? '/dashboard' : '/login'} />
   }
 
   if (pathname === '/login' || pathname === '/register') {
@@ -59,10 +60,13 @@ export function AppRoutes() {
     '/account/access': <MyAccess />,
     '/account/profile': <Profile />,
     '/account/sessions': <DeviceSessions />,
+    '/organizations/discover': <DiscoverOrganizations />,
     '/organization/members': <Members />,
     '/organization/roles': <Roles />,
     '/organization/subscription': <OrganizationSubscription />,
+    '/platform/audit-logs': <AuditLogs />,
     '/platform/organizations': <PlatformOrganizations />,
+    '/platform/users': <Users />,
   }
   const protectedPage = protectedPages[pathname]
 
@@ -73,9 +77,7 @@ export function AppRoutes() {
       return <Navigate replace state={{ from: location }} to="/login" />
     }
 
-    return (
-      <AuthenticatedLayout>{protectedPage}</AuthenticatedLayout>
-    )
+    return <AuthenticatedLayout>{protectedPage}</AuthenticatedLayout>
   }
 
   return <NotFound />

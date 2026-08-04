@@ -11,7 +11,6 @@ import {
 } from '../services/accessControlApi.js'
 
 const PLATFORM_ORGANIZATION_PERMISSION = 'platform.organizations.manage'
-const SUPER_ADMIN_PERMISSION = 'platform.super_admin.assign'
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 function normalizeName(value) {
@@ -73,7 +72,7 @@ export function PlatformOrganizations() {
 
   const canManageOrganizations = hasPlatformPermission(
     PLATFORM_ORGANIZATION_PERMISSION,
-  ) || hasPlatformPermission(SUPER_ADMIN_PERMISSION)
+  )
 
   const loadOrganizations = useCallback(async () => {
     if (!canManageOrganizations) {

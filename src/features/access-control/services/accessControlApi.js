@@ -118,6 +118,21 @@ export async function inviteOrganizationMember(organizationId, invite) {
   return getResponseData(response).invite
 }
 
+export async function resendOrganizationInvite(organizationId, inviteId) {
+  const response = await csrfRequest(
+    organizationPath(
+      organizationId,
+      `/invites/${encodeURIComponent(inviteId)}/resend`,
+    ),
+    {
+      method: 'POST',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).invite
+}
+
 export function revokeOrganizationInvite(organizationId, inviteId) {
   return csrfRequest(
     organizationPath(organizationId, `/invites/${encodeURIComponent(inviteId)}`),
@@ -309,4 +324,94 @@ export function removeMember(organizationId, membershipId) {
       requiresAuth: true,
     },
   )
+}
+
+export async function discoverOrganizations() {
+  const response = await apiRequest('/access/organizations/discover', {
+    cache: 'no-store',
+    requiresAuth: true,
+  })
+
+  return getResponseData(response).organizations
+}
+
+export async function getMyJoinRequests() {
+  const response = await apiRequest('/access/my-join-requests', {
+    cache: 'no-store',
+    requiresAuth: true,
+  })
+
+  return getResponseData(response).joinRequests
+}
+
+export async function requestToJoinOrganization(organizationId, values) {
+  const response = await csrfRequest(
+    `/access/organizations/${encodeURIComponent(organizationId)}/join-requests`,
+    {
+      body: values,
+      method: 'POST',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).joinRequest
+}
+
+export function cancelMyJoinRequest(requestId) {
+  return csrfRequest(
+    `/access/my-join-requests/${encodeURIComponent(requestId)}`,
+    {
+      method: 'DELETE',
+      requiresAuth: true,
+    },
+  )
+}
+
+export async function getOrganizationJoinRequests(organizationId, status) {
+  const query = status ? `?status=${encodeURIComponent(status)}` : ''
+  const response = await apiRequest(
+    organizationPath(organizationId, `/join-requests${query}`),
+    {
+      cache: 'no-store',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).joinRequests
+}
+
+export async function acceptJoinRequest(organizationId, requestId, roleIds = []) {
+  const response = await csrfRequest(
+    organizationPath(
+      organizationId,
+      `/join-requests/${encodeURIComponent(requestId)}/accept`,
+    ),
+    {
+      body: { roleIds },
+      method: 'PATCH',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).joinRequest
+}
+
+export async function rejectJoinRequest(
+  organizationId,
+  requestId,
+  rejectionReason = '',
+) {
+  const response = await csrfRequest(
+    organizationPath(
+      organizationId,
+      `/join-requests/${encodeURIComponent(requestId)}/reject`,
+    ),
+    {
+      body: { rejectionReason },
+      method: 'PATCH',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).joinRequest
 }

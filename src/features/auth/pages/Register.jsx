@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from '../../../routes/RouterElements.jsx'
+import { useLocation } from '../../../routes/routerHooks.js'
 import { Alert } from '../../../shared/components/Alert.jsx'
 import { getFieldErrors } from '../../../shared/utils/apiResponse.js'
 import { AuthLayout } from '../components/AuthLayout.jsx'
@@ -9,10 +10,17 @@ import { normalizeEmail } from '../components/validation.js'
 import { registerAccount } from '../services/authApi.js'
 
 export function Register() {
+  const location = useLocation()
   const [error, setError] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
   const [registeredEmail, setRegisteredEmail] = useState('')
+  const invitedEmail =
+    typeof location.state?.email === 'string' ? location.state.email : ''
+  const loginState = {
+    ...(location.state ?? {}),
+    email: registeredEmail || invitedEmail,
+  }
 
   async function handleRegister(values) {
     setError(null)
@@ -41,7 +49,11 @@ export function Register() {
     return (
       <AuthLayout
         description="We sent a secure verification link to your inbox."
-        footer={<Link to="/login">Return to sign in</Link>}
+        footer={
+          <Link state={loginState} to="/login">
+            Return to sign in
+          </Link>
+        }
         title="Check your email"
       >
         <Alert tone="success">{successMessage}</Alert>
@@ -49,6 +61,12 @@ export function Register() {
           Open the link in the email to activate your account. Check your spam
           folder if it does not arrive shortly.
         </p>
+        {location.state?.from?.pathname === '/accept-invite' && (
+          <p className="supporting-copy">
+            After verification, sign in with this email and we will return you
+            to the invitation.
+          </p>
+        )}
         <VerificationEmailResend initialEmail={registeredEmail} />
       </AuthLayout>
     )
@@ -76,6 +94,7 @@ export function Register() {
       )}
       <RegisterForm
         fieldErrors={getFieldErrors(error)}
+        initialEmail={invitedEmail}
         isLoading={isLoading}
         onSubmit={handleRegister}
       />

@@ -46,6 +46,8 @@ export function MyAccess() {
     setSelectedOrganizationId,
     status,
   } = useAccessControl()
+  const canManageMembers = hasPermission('members.manage')
+  const canManageRoles = hasPermission('roles.manage')
 
   if (status === 'loading' || status === 'idle') {
     return (
@@ -194,14 +196,18 @@ export function MyAccess() {
               <p className="eyebrow">Selected workspace</p>
               <h2>{selectedOrganization.organization.name}</h2>
             </div>
-            {hasPermission('users.manage') && (
+            {(canManageMembers || canManageRoles) && (
               <div className="inline-actions">
-                <Link className="button button--secondary" to="/organization/members">
-                  Manage members
-                </Link>
-                <Link className="button button--primary" to="/organization/roles">
-                  Manage roles
-                </Link>
+                {canManageMembers && (
+                  <Link className="button button--secondary" to="/organization/members">
+                    Manage members
+                  </Link>
+                )}
+                {canManageRoles && (
+                  <Link className="button button--primary" to="/organization/roles">
+                    Manage roles
+                  </Link>
+                )}
               </div>
             )}
           </div>

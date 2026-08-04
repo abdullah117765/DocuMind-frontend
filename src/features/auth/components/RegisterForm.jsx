@@ -7,9 +7,14 @@ import {
   validatePassword,
 } from './validation.js'
 
-export function RegisterForm({ fieldErrors = {}, onSubmit, isLoading = false }) {
+export function RegisterForm({
+  fieldErrors = {},
+  initialEmail = '',
+  onSubmit,
+  isLoading = false,
+}) {
   const [values, setValues] = useState({
-    email: '',
+    email: initialEmail,
     password: '',
     confirmPassword: '',
   })

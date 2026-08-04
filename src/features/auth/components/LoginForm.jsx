@@ -5,11 +5,15 @@ import { normalizeEmail, validateEmail } from './validation.js'
 
 export function LoginForm({
   fieldErrors = {},
+  initialEmail = '',
   onChange,
   onSubmit,
   isLoading = false,
 }) {
-  const [credentials, setCredentials] = useState({ email: '', password: '' })
+  const [credentials, setCredentials] = useState({
+    email: initialEmail,
+    password: '',
+  })
   const [clientErrors, setClientErrors] = useState({})
 
   function handleChange(event) {

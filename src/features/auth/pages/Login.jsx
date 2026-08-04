@@ -16,6 +16,8 @@ export function Login() {
   const navigate = useNavigate()
   const { dismissMessage, message } = useRouteFlashMessage()
   const [unverifiedEmail, setUnverifiedEmail] = useState('')
+  const invitedEmail =
+    typeof location.state?.email === 'string' ? location.state.email : ''
 
   async function handleLogin(credentials) {
     try {
@@ -68,7 +70,10 @@ export function Login() {
       description="Use your verified account to continue."
       footer={
         <>
-          New here? <Link to="/register">Create an account</Link>
+          New here?{' '}
+          <Link state={location.state} to="/register">
+            Create an account
+          </Link>
         </>
       }
       title="Welcome back"
@@ -89,6 +94,7 @@ export function Login() {
       )}
       <LoginForm
         fieldErrors={getFieldErrors(error)}
+        initialEmail={invitedEmail}
         isLoading={isLoading}
         onChange={() => {
           clearError()

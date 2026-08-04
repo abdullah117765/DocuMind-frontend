@@ -10,12 +10,16 @@ import { OrganizationPermissionBoundary } from '../components/OrganizationPermis
 import { useAccessControl } from '../hooks/useAccessControl.js'
 import {
   addMember,
+  acceptJoinRequest,
   getOrganizationInvites,
+  getOrganizationJoinRequests,
   getMembers,
   getRoles,
   inviteOrganizationMember,
   removeMember,
   replaceMemberRoles,
+  rejectJoinRequest,
+  resendOrganizationInvite,
   revokeOrganizationInvite,
   updateMemberStatus,
 } from '../services/accessControlApi.js'
@@ -40,9 +44,12 @@ function MembersContent() {
   const [isSaving, setIsSaving] = useState(false)
   const [inviteToRevoke, setInviteToRevoke] = useState(null)
   const [invites, setInvites] = useState([])
+  const [joinRequests, setJoinRequests] = useState([])
   const [memberToRemove, setMemberToRemove] = useState(null)
   const [members, setMembers] = useState([])
   const [notice, setNotice] = useState('')
+  const [rejectingRequest, setRejectingRequest] = useState(null)
+  const [rejectionReason, setRejectionReason] = useState('')
   const [roles, setRoles] = useState([])
 
   const loadData = useCallback(async () => {
@@ -50,15 +57,22 @@ function MembersContent() {
     setIsLoading(true)
 
     try {
-      const [nextMembers, nextRoles, nextInvites] = await Promise.all([
+      const [
+        nextMembers,
+        nextRoles,
+        nextInvites,
+        nextJoinRequests,
+      ] = await Promise.all([
         getMembers(organizationId),
         getRoles(organizationId),
         getOrganizationInvites(organizationId),
+        getOrganizationJoinRequests(organizationId),
       ])
 
       setMembers(nextMembers)
       setRoles(nextRoles)
       setInvites(nextInvites)
+      setJoinRequests(nextJoinRequests)
     } catch (error) {
       setActionError(error)
     } finally {
@@ -73,6 +87,8 @@ function MembersContent() {
     setInviteToRevoke(null)
     setMemberToRemove(null)
     setNotice('')
+    setRejectingRequest(null)
+    setRejectionReason('')
     void loadData()
   }, [loadData])
 
@@ -109,7 +125,15 @@ function MembersContent() {
       await completeMutation(`Invitation sent to ${values.email}.`)
     } catch (error) {
       setActionError(error)
-      notifications.error(error.message)
+      if (error?.details?.reason === 'INVITE_EMAIL_DELIVERY_FAILED') {
+        setIsInviteOpen(false)
+        notifications.error(
+          'Invite was saved, but email delivery failed. Fix SMTP and use Resend.',
+        )
+        await loadData().catch(() => {})
+      } else {
+        notifications.error(error.message)
+      }
     } finally {
       setIsSaving(false)
     }
@@ -183,6 +207,60 @@ function MembersContent() {
       const email = inviteToRevoke.email
       setInviteToRevoke(null)
       await completeMutation(`Invitation for ${email} was revoked.`)
+    } catch (error) {
+      setActionError(error)
+      notifications.error(error.message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function handleResendInvite(invite) {
+    setActionError(null)
+    setIsSaving(true)
+
+    try {
+      await resendOrganizationInvite(organizationId, invite.id)
+      await completeMutation(`Invitation resent to ${invite.email}.`)
+    } catch (error) {
+      setActionError(error)
+      notifications.error(error.message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function handleAcceptJoinRequest(joinRequest) {
+    setActionError(null)
+    setIsSaving(true)
+
+    try {
+      await acceptJoinRequest(organizationId, joinRequest.id)
+      await completeMutation(`${joinRequest.user.email} was added as Employee.`)
+    } catch (error) {
+      setActionError(error)
+      notifications.error(error.message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function handleRejectJoinRequest() {
+    if (!rejectingRequest) return
+
+    setActionError(null)
+    setIsSaving(true)
+
+    try {
+      await rejectJoinRequest(
+        organizationId,
+        rejectingRequest.id,
+        rejectionReason,
+      )
+      const email = rejectingRequest.user.email
+      setRejectingRequest(null)
+      setRejectionReason('')
+      await completeMutation(`Join request from ${email} was rejected.`)
     } catch (error) {
       setActionError(error)
       notifications.error(error.message)
@@ -356,6 +434,11 @@ function MembersContent() {
                   <p className="muted-copy">
                     Expires {formatDate(invite.expiresAt)}
                   </p>
+                  {invite.lastSentAt && (
+                    <p className="muted-copy">
+                      Last sent {formatDate(invite.lastSentAt)}
+                    </p>
+                  )}
                 </div>
                 <span
                   className={`status-badge ${
@@ -379,7 +462,25 @@ function MembersContent() {
                     <span className="muted-copy">No roles assigned</span>
                   )}
                 </div>
+                {invite.lastSendFailureAt && (
+                  <Alert tone="warning" title="Email delivery failed">
+                    Last failed {formatDate(invite.lastSendFailureAt)}
+                    {invite.lastSendFailureReason
+                      ? ` — ${invite.lastSendFailureReason}`
+                      : '. Fix SMTP settings, then resend or revoke this invite.'}
+                  </Alert>
+                )}
                 <div className="member-card__actions">
+                  <Button
+                    disabled={
+                      isSaving ||
+                      !['PENDING', 'EXPIRED'].includes(invite.status)
+                    }
+                    onClick={() => void handleResendInvite(invite)}
+                    variant="secondary"
+                  >
+                    Resend
+                  </Button>
                   <Button
                     disabled={isSaving || invite.status !== 'PENDING'}
                     onClick={() => setInviteToRevoke(invite)}
@@ -396,6 +497,76 @@ function MembersContent() {
             <div>
               <h2>No invites found</h2>
               <p>Send an invitation to onboard someone by email.</p>
+            </div>
+          </section>
+        )}
+      </section>
+
+      <section className="section-block">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Access requests</p>
+            <h2>Join requests</h2>
+            <p>
+              Review users who asked to join this organization. Accepted users
+              receive the Employee role by default.
+            </p>
+          </div>
+        </div>
+
+        {joinRequests.length ? (
+          <div className="invite-list">
+            {joinRequests.map((joinRequest) => (
+              <article className="invite-card" key={joinRequest.id}>
+                <div>
+                  <h3>{joinRequest.user.email}</h3>
+                  <p className="muted-copy">
+                    Requested {formatDate(joinRequest.createdAt)}
+                  </p>
+                  {joinRequest.message && <p>{joinRequest.message}</p>}
+                  {joinRequest.rejectionReason && (
+                    <p className="muted-copy">
+                      Rejection reason: {joinRequest.rejectionReason}
+                    </p>
+                  )}
+                </div>
+                <span
+                  className={`status-badge ${
+                    joinRequest.status === 'PENDING'
+                      ? 'status-badge--warning'
+                      : joinRequest.status === 'ACCEPTED'
+                        ? 'status-badge--success'
+                        : ''
+                  }`}
+                >
+                  {joinRequest.status}
+                </span>
+                <div className="member-card__actions">
+                  <Button
+                    disabled={isSaving || joinRequest.status !== 'PENDING'}
+                    onClick={() => void handleAcceptJoinRequest(joinRequest)}
+                  >
+                    Accept
+                  </Button>
+                  <Button
+                    disabled={isSaving || joinRequest.status !== 'PENDING'}
+                    onClick={() => {
+                      setRejectionReason('')
+                      setRejectingRequest(joinRequest)
+                    }}
+                    variant="danger"
+                  >
+                    Reject
+                  </Button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <section className="empty-state empty-state--compact">
+            <div>
+              <h2>No join requests</h2>
+              <p>Requests from users will appear here for review.</p>
             </div>
           </section>
         )}
@@ -509,13 +680,52 @@ function MembersContent() {
           </Button>
         </div>
       </Modal>
+
+      <Modal
+        isOpen={Boolean(rejectingRequest)}
+        onClose={() => !isSaving && setRejectingRequest(null)}
+        title="Reject join request?"
+      >
+        {actionError && <Alert>{actionError.message}</Alert>}
+        <p>
+          Rejecting <strong>{rejectingRequest?.user.email}</strong> keeps them
+          out of this organization. They can request again after the cooldown.
+        </p>
+        <label className="field">
+          <span className="field__label">Reason</span>
+          <textarea
+            disabled={isSaving}
+            maxLength={1000}
+            onChange={(event) => setRejectionReason(event.target.value)}
+            placeholder="Optional reason shown to the requester"
+            rows={4}
+            value={rejectionReason}
+          />
+        </label>
+        <div className="form-actions">
+          <Button
+            disabled={isSaving}
+            onClick={() => setRejectingRequest(null)}
+            variant="secondary"
+          >
+            Cancel
+          </Button>
+          <Button
+            disabled={isSaving}
+            onClick={() => void handleRejectJoinRequest()}
+            variant="danger"
+          >
+            {isSaving ? 'Rejecting...' : 'Reject request'}
+          </Button>
+        </div>
+      </Modal>
     </main>
   )
 }
 
 export function Members() {
   return (
-    <OrganizationPermissionBoundary permission="users.manage">
+    <OrganizationPermissionBoundary permission="members.manage">
       <MembersContent />
     </OrganizationPermissionBoundary>
   )

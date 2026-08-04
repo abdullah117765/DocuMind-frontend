@@ -350,7 +350,7 @@ function RolesContent() {
 
 export function Roles() {
   return (
-    <OrganizationPermissionBoundary permission="users.manage">
+    <OrganizationPermissionBoundary permission="roles.manage">
       <RolesContent />
     </OrganizationPermissionBoundary>
   )

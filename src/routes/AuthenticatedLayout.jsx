@@ -9,18 +9,21 @@ import { Link, NavLink } from './RouterElements.jsx'
 import { useNavigate } from './routerHooks.js'
 
 function getInitials(email = '') {
-  return email
-    .split('@')[0]
-    .split(/[._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join('') || 'U'
+  return (
+    email
+      .split('@')[0]
+      .split(/[._-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join('') || 'U'
+  )
 }
 
 export function AuthenticatedLayout({ children }) {
   const {
     access,
+    effectiveRoles,
     hasPermission,
     hasPlatformPermission,
     selectedOrganization,
@@ -47,9 +50,18 @@ export function AuthenticatedLayout({ children }) {
     }
   }
 
-  const canAccessPlatformOrganizations =
-    hasPlatformPermission('platform.organizations.manage') ||
-    hasPlatformPermission('platform.super_admin.assign')
+  const canManageMembers = hasPermission('members.manage')
+  const canManageRoles = hasPermission('roles.manage')
+  const canAccessPlatformOrganizations = hasPlatformPermission(
+    'platform.organizations.manage',
+  )
+  const canAccessPlatformUsers = hasPlatformPermission('platform.users.manage')
+  const canAccessAuditLogs = hasPlatformPermission('platform.audit_logs.view')
+  const canAccessPlatform =
+    canAccessPlatformOrganizations || canAccessPlatformUsers || canAccessAuditLogs
+  const currentRoles = selectedOrganization
+    ? effectiveRoles
+    : access?.platform?.roles ?? []
 
   return (
     <div className="app-shell">
@@ -69,20 +81,29 @@ export function AuthenticatedLayout({ children }) {
           <span className="side-nav__label">Workspace</span>
           <NavLink to="/dashboard">Overview</NavLink>
           <NavLink to="/account/access">My access</NavLink>
-          {hasPermission('users.manage') && (
-            <>
-              <NavLink to="/organization/roles">Roles</NavLink>
-              <NavLink to="/organization/members">Members</NavLink>
-            </>
+          <NavLink to="/organizations/discover">Discover orgs</NavLink>
+          {canManageRoles && (
+            <NavLink to="/organization/roles">Roles</NavLink>
+          )}
+          {canManageMembers && (
+            <NavLink to="/organization/members">Members</NavLink>
           )}
           {hasPermission('billing.manage') && (
             <NavLink to="/organization/subscription">Subscription</NavLink>
           )}
 
-          {canAccessPlatformOrganizations && (
+          {canAccessPlatform && (
             <>
               <span className="side-nav__label">Platform</span>
-              <NavLink to="/platform/organizations">Organizations</NavLink>
+              {canAccessPlatformOrganizations && (
+                <NavLink to="/platform/organizations">Organizations</NavLink>
+              )}
+              {canAccessPlatformUsers && (
+                <NavLink to="/platform/users">Users</NavLink>
+              )}
+              {canAccessAuditLogs && (
+                <NavLink to="/platform/audit-logs">Audit logs</NavLink>
+              )}
             </>
           )}
 
@@ -99,9 +120,9 @@ export function AuthenticatedLayout({ children }) {
             <h1 className="topbar-title">
               {selectedOrganization?.organization.name ?? 'Platform'}
             </h1>
-            {access?.platform?.roles?.length > 0 && (
+            {currentRoles.length > 0 && (
               <span className="topbar-pill">
-                {access.platform.roles.map((role) => role.name).join(', ')}
+                {currentRoles.map((role) => role.name).join(', ')}
               </span>
             )}
           </div>
@@ -138,7 +159,11 @@ export function AuthenticatedLayout({ children }) {
                     </span>
                     <div>
                       <strong>{user.email}</strong>
-                      <p>{user.isVerified ? 'Verified account' : 'Email not verified'}</p>
+                      <p>
+                        {user.isVerified
+                          ? 'Verified account'
+                          : 'Email not verified'}
+                      </p>
                     </div>
                   </div>
                   <Link
