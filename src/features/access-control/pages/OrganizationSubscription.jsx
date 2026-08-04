@@ -162,6 +162,25 @@ function OrganizationSubscriptionContent() {
       )}
       {error && <Alert onDismiss={() => setError(null)}>{error.message}</Alert>}
 
+      <section className="metric-grid" aria-label="Subscription summary">
+        <article>
+          <span>Plan</span>
+          <strong>{subscription?.plan ?? 'Unknown'}</strong>
+        </article>
+        <article>
+          <span>Status</span>
+          <strong>{subscription?.status ?? 'Unknown'}</strong>
+        </article>
+        <article>
+          <span>Members cap</span>
+          <strong>{limits?.maxMembers ?? '-'}</strong>
+        </article>
+        <article>
+          <span>Monthly AI cap</span>
+          <strong>{limits?.maxMonthlyAiRequests ?? '-'}</strong>
+        </article>
+      </section>
+
       <section className="subscription-layout">
         <form className="card form" onSubmit={handleSaveSubscription}>
           <div>

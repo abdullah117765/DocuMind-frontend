@@ -42,6 +42,7 @@ function MembersContent() {
   const [isInviteOpen, setIsInviteOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [joinRequestToAccept, setJoinRequestToAccept] = useState(null)
   const [inviteToRevoke, setInviteToRevoke] = useState(null)
   const [invites, setInvites] = useState([])
   const [joinRequests, setJoinRequests] = useState([])
@@ -84,6 +85,7 @@ function MembersContent() {
     setEditingMember(null)
     setIsAddOpen(false)
     setIsInviteOpen(false)
+    setJoinRequestToAccept(null)
     setInviteToRevoke(null)
     setMemberToRemove(null)
     setNotice('')
@@ -230,13 +232,24 @@ function MembersContent() {
     }
   }
 
-  async function handleAcceptJoinRequest(joinRequest) {
+  const activeMembers = members.filter((member) => member.status === 'ACTIVE')
+  const pendingInvites = invites.filter((invite) => invite.status === 'PENDING')
+  const failedInvites = invites.filter((invite) => invite.lastSendFailureAt)
+  const pendingJoinRequests = joinRequests.filter(
+    (joinRequest) => joinRequest.status === 'PENDING',
+  )
+
+  async function handleAcceptJoinRequest({ roleIds }) {
+    if (!joinRequestToAccept) return
+
     setActionError(null)
     setIsSaving(true)
 
     try {
-      await acceptJoinRequest(organizationId, joinRequest.id)
-      await completeMutation(`${joinRequest.user.email} was added as Employee.`)
+      await acceptJoinRequest(organizationId, joinRequestToAccept.id, roleIds)
+      const email = joinRequestToAccept.user.email
+      setJoinRequestToAccept(null)
+      await completeMutation(`${email} was added to the organization.`)
     } catch (error) {
       setActionError(error)
       notifications.error(error.message)
@@ -311,6 +324,25 @@ function MembersContent() {
 
       {notice && <Alert tone="success">{notice}</Alert>}
       {actionError && <Alert>{actionError.message}</Alert>}
+
+      <section className="metric-grid" aria-label="Member management summary">
+        <article>
+          <span>Active members</span>
+          <strong>{activeMembers.length}</strong>
+        </article>
+        <article>
+          <span>Pending invites</span>
+          <strong>{pendingInvites.length}</strong>
+        </article>
+        <article>
+          <span>Join requests</span>
+          <strong>{pendingJoinRequests.length}</strong>
+        </article>
+        <article>
+          <span>Email issues</span>
+          <strong>{failedInvites.length}</strong>
+        </article>
+      </section>
 
       <section className="member-list" aria-label="Organization members">
         {members.length ? (
@@ -508,8 +540,8 @@ function MembersContent() {
             <p className="eyebrow">Access requests</p>
             <h2>Join requests</h2>
             <p>
-              Review users who asked to join this organization. Accepted users
-              receive the Employee role by default.
+              Review users who asked to join this organization, then choose the
+              role they should receive before accepting.
             </p>
           </div>
         </div>
@@ -544,7 +576,10 @@ function MembersContent() {
                 <div className="member-card__actions">
                   <Button
                     disabled={isSaving || joinRequest.status !== 'PENDING'}
-                    onClick={() => void handleAcceptJoinRequest(joinRequest)}
+                    onClick={() => {
+                      setActionError(null)
+                      setJoinRequestToAccept(joinRequest)
+                    }}
                   >
                     Accept
                   </Button>
@@ -679,6 +714,30 @@ function MembersContent() {
             {isSaving ? 'Revoking...' : 'Revoke invite'}
           </Button>
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(joinRequestToAccept)}
+        onClose={() => !isSaving && setJoinRequestToAccept(null)}
+        title="Accept join request"
+      >
+        {actionError && <Alert>{actionError.message}</Alert>}
+        {joinRequestToAccept && (
+          <>
+            <p>
+              Choose roles for <strong>{joinRequestToAccept.user.email}</strong>{' '}
+              before adding them to {selectedOrganization.organization.name}.
+            </p>
+            <MemberForm
+              isSaving={isSaving}
+              key={joinRequestToAccept.id}
+              mode="accept"
+              onCancel={() => setJoinRequestToAccept(null)}
+              onSubmit={handleAcceptJoinRequest}
+              roles={roles}
+            />
+          </>
+        )}
       </Modal>
 
       <Modal

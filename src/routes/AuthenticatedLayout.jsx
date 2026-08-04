@@ -52,6 +52,7 @@ export function AuthenticatedLayout({ children }) {
 
   const canManageMembers = hasPermission('members.manage')
   const canManageRoles = hasPermission('roles.manage')
+  const canManageSettings = hasPermission('settings.manage')
   const canAccessPlatformOrganizations = hasPlatformPermission(
     'platform.organizations.manage',
   )
@@ -90,6 +91,9 @@ export function AuthenticatedLayout({ children }) {
           )}
           {hasPermission('billing.manage') && (
             <NavLink to="/organization/subscription">Subscription</NavLink>
+          )}
+          {canManageSettings && (
+            <NavLink to="/organization/settings">Settings</NavLink>
           )}
 
           {canAccessPlatform && (

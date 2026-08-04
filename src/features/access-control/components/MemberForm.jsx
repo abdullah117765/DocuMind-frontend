@@ -37,7 +37,7 @@ export function MemberForm({
     event.preventDefault()
     const normalizedEmail = normalizeEmail(email)
 
-    if (!member) {
+    if (!member && mode !== 'accept') {
       const nextEmailError = validateEmail(normalizedEmail)
       setEmailError(nextEmailError)
 
@@ -45,17 +45,23 @@ export function MemberForm({
     }
 
     void onSubmit({
-      ...(member ? {} : { email: normalizedEmail }),
+      ...(!member && mode !== 'accept' ? { email: normalizedEmail } : {}),
       roleIds,
     })
   }
 
   return (
     <form className="form" onSubmit={handleSubmit}>
-      {member ? (
+      {member || mode === 'accept' ? (
         <div className="member-identity">
-          <span className="field__label">Member</span>
-          <strong>{member.user.email}</strong>
+          <span className="field__label">
+            {mode === 'accept' ? 'Role assignment' : 'Member'}
+          </span>
+          <strong>
+            {mode === 'accept'
+              ? 'Select the organization roles for this user'
+              : member.user.email}
+          </strong>
         </div>
       ) : (
         <Input
@@ -65,6 +71,8 @@ export function MemberForm({
           hint={
             mode === 'invite'
               ? 'They will receive an email invitation.'
+              : mode === 'accept'
+                ? 'Assign roles before accepting this request.'
               : 'The user must already have a verified account.'
           }
           label="Email"
@@ -82,11 +90,12 @@ export function MemberForm({
       <fieldset className="role-options">
         <legend className="field__label">Organization roles</legend>
         <p>
-          Multiple roles are allowed. Effective permissions are merged by the
-          backend.
+          Multiple roles are allowed. Choose explicitly whenever possible; if
+          none are selected, the backend may apply its default role policy.
         </p>
         <div className="role-options__list">
-          {roles.map((role) => (
+          {roles.length ? (
+            roles.map((role) => (
             <label className="role-option" key={role.id}>
               <input
                 checked={selectedRoles.has(role.id)}
@@ -103,7 +112,10 @@ export function MemberForm({
                 </small>
               </span>
             </label>
-          ))}
+            ))
+          ) : (
+            <p className="muted-copy">No assignable roles were returned.</p>
+          )}
         </div>
       </fieldset>
       <div className="form-actions">
@@ -115,6 +127,8 @@ export function MemberForm({
             ? 'Saving...'
             : member
               ? 'Save roles'
+              : mode === 'accept'
+                ? 'Accept request'
               : mode === 'invite'
                 ? 'Send invite'
                 : 'Add member'}

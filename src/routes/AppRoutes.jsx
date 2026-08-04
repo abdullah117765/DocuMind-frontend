@@ -2,6 +2,7 @@ import { AcceptInvite } from '../features/access-control/pages/AcceptInvite.jsx'
 import { DiscoverOrganizations } from '../features/access-control/pages/DiscoverOrganizations.jsx'
 import { Members } from '../features/access-control/pages/Members.jsx'
 import { MyAccess } from '../features/access-control/pages/MyAccess.jsx'
+import { OrganizationSettings } from '../features/access-control/pages/OrganizationSettings.jsx'
 import { OrganizationSubscription } from '../features/access-control/pages/OrganizationSubscription.jsx'
 import { PlatformOrganizations } from '../features/access-control/pages/PlatformOrganizations.jsx'
 import { Roles } from '../features/access-control/pages/Roles.jsx'
@@ -63,6 +64,7 @@ export function AppRoutes() {
     '/organizations/discover': <DiscoverOrganizations />,
     '/organization/members': <Members />,
     '/organization/roles': <Roles />,
+    '/organization/settings': <OrganizationSettings />,
     '/organization/subscription': <OrganizationSubscription />,
     '/platform/audit-logs': <AuditLogs />,
     '/platform/organizations': <PlatformOrganizations />,

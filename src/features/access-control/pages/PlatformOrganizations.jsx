@@ -3,6 +3,7 @@ import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
+import { Link } from '../../../routes/RouterElements.jsx'
 import { useNotifications } from '../../../shared/useNotifications.js'
 import { useAccessControl } from '../hooks/useAccessControl.js'
 import {
@@ -54,6 +55,30 @@ function formatDate(value) {
   }).format(new Date(value))
 }
 
+function OrganizationSetupActions({ organization, onSelect }) {
+  return (
+    <div className="tenant-setup-actions">
+      <Button onClick={() => onSelect(organization.id)} variant="secondary">
+        Use workspace
+      </Button>
+      <Link
+        className="button button--secondary"
+        onClick={() => onSelect(organization.id)}
+        to="/organization/members"
+      >
+        Assign admin
+      </Link>
+      <Link
+        className="button button--secondary"
+        onClick={() => onSelect(organization.id)}
+        to="/organization/subscription"
+      >
+        Limits
+      </Link>
+    </div>
+  )
+}
+
 export function PlatformOrganizations() {
   const {
     hasPlatformPermission,
@@ -69,6 +94,13 @@ export function PlatformOrganizations() {
   const [isSaving, setIsSaving] = useState(false)
   const [notice, setNotice] = useState('')
   const [organizations, setOrganizations] = useState([])
+  const totalMembers = organizations.reduce(
+    (total, organization) => total + (organization.memberCount ?? 0),
+    0,
+  )
+  const latestOrganization = [...organizations].sort(
+    (left, right) => new Date(right.createdAt) - new Date(left.createdAt),
+  )[0]
 
   const canManageOrganizations = hasPlatformPermission(
     PLATFORM_ORGANIZATION_PERMISSION,
@@ -197,8 +229,12 @@ export function PlatformOrganizations() {
       <section className="platform-organization-layout">
         <form className="card form" onSubmit={handleSubmit}>
           <div>
-            <span className="card__label">New tenant</span>
+            <span className="card__label">Step 1</span>
             <h2>Create organization</h2>
+            <p>
+              Super Admin stays outside tenant membership. After creation, use
+              Members to assign the first Organization Admin.
+            </p>
           </div>
           <Input
             autoComplete="organization"
@@ -230,6 +266,14 @@ export function PlatformOrganizations() {
               {isSaving ? 'Creating...' : 'Create organization'}
             </Button>
           </div>
+          <div className="onboarding-note">
+            <strong>Next steps after create</strong>
+            <ol>
+              <li>Select the new workspace.</li>
+              <li>Add or invite the first Organization Admin.</li>
+              <li>Review subscription and usage limits.</li>
+            </ol>
+          </div>
         </form>
 
         <section className="card">
@@ -238,6 +282,21 @@ export function PlatformOrganizations() {
               <span className="card__label">Tenant catalog</span>
               <h2>{organizations.length} organizations</h2>
             </div>
+          </div>
+
+          <div className="metric-grid metric-grid--compact">
+            <article>
+              <span>Total tenants</span>
+              <strong>{organizations.length}</strong>
+            </article>
+            <article>
+              <span>Total members</span>
+              <strong>{totalMembers}</strong>
+            </article>
+            <article>
+              <span>Latest tenant</span>
+              <strong>{latestOrganization?.name ?? 'None yet'}</strong>
+            </article>
           </div>
 
           {isLoading ? (
@@ -249,20 +308,25 @@ export function PlatformOrganizations() {
                 <span role="columnheader">Slug</span>
                 <span role="columnheader">Members</span>
                 <span role="columnheader">Created</span>
+                <span role="columnheader">Setup</span>
               </div>
               {organizations.map((organization) => (
-                <button
+                <div
                   className="organization-table__row"
                   key={organization.id}
-                  onClick={() => setSelectedOrganizationId(organization.id)}
                   role="row"
-                  type="button"
                 >
                   <span role="cell">{organization.name}</span>
                   <code role="cell">{organization.slug}</code>
                   <span role="cell">{organization.memberCount}</span>
                   <span role="cell">{formatDate(organization.createdAt)}</span>
-                </button>
+                  <span role="cell">
+                    <OrganizationSetupActions
+                      onSelect={setSelectedOrganizationId}
+                      organization={organization}
+                    />
+                  </span>
+                </div>
               ))}
             </div>
           ) : (
