@@ -14,7 +14,7 @@ function chooseOrganization(organizations, currentId) {
   if (currentOrganization) return currentId
 
   const activeOrganization = organizations.find(
-    ({ membership }) => membership.status === 'ACTIVE',
+    ({ membership }) => !membership || membership.status === 'ACTIVE',
   )
 
   return activeOrganization?.organization.id ?? organizations[0]?.organization.id ?? null
@@ -103,7 +103,10 @@ export function AccessControlProvider({ children }) {
   )
 
   useEffect(() => {
-    if (!selectedOrganizationId || selectedOrganization?.membership.status !== 'ACTIVE') {
+    if (
+      !selectedOrganizationId ||
+      selectedOrganization?.membership?.status === 'SUSPENDED'
+    ) {
       setSelectedOrganizationAccess(null)
       return undefined
     }
@@ -122,7 +125,7 @@ export function AccessControlProvider({ children }) {
     return () => {
       active = false
     }
-  }, [access, selectedOrganization?.membership.status, selectedOrganizationId])
+  }, [access, selectedOrganization?.membership?.status, selectedOrganizationId])
 
   const hasMatchingOrganizationAccess =
     selectedOrganizationAccess?.organization.id === selectedOrganizationId

@@ -9,6 +9,7 @@ import {
 export function MemberForm({
   isSaving,
   member,
+  mode = 'add',
   onCancel,
   onSubmit,
   roles = [],
@@ -61,7 +62,11 @@ export function MemberForm({
           autoComplete="email"
           disabled={isSaving}
           error={emailError}
-          hint="The user must already have a verified account."
+          hint={
+            mode === 'invite'
+              ? 'They will receive an email invitation.'
+              : 'The user must already have a verified account.'
+          }
           label="Email"
           maxLength="254"
           onChange={(event) => {
@@ -106,7 +111,13 @@ export function MemberForm({
           Cancel
         </Button>
         <Button disabled={isSaving} type="submit">
-          {isSaving ? 'Saving…' : member ? 'Save roles' : 'Add member'}
+          {isSaving
+            ? 'Saving...'
+            : member
+              ? 'Save roles'
+              : mode === 'invite'
+                ? 'Send invite'
+                : 'Add member'}
         </Button>
       </div>
     </form>

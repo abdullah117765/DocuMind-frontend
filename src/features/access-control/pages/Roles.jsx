@@ -3,6 +3,7 @@ import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
 import { Modal } from '../../../shared/components/Modal/Modal.jsx'
+import { useNotifications } from '../../../shared/useNotifications.js'
 import { OrganizationPermissionBoundary } from '../components/OrganizationPermissionBoundary.jsx'
 import { RoleForm } from '../components/RoleForm.jsx'
 import { useAccessControl } from '../hooks/useAccessControl.js'
@@ -28,6 +29,7 @@ function groupPermissions(permissions) {
 
 function RolesContent() {
   const { refreshAccess, selectedOrganization } = useAccessControl()
+  const notifications = useNotifications()
   const organizationId = selectedOrganization.organization.id
   const [actionError, setActionError] = useState(null)
   const [editingRole, setEditingRole] = useState(null)
@@ -69,6 +71,10 @@ function RolesContent() {
     () => groupPermissions(permissions),
     [permissions],
   )
+  const selfAssignedRoleIds = useMemo(
+    () => new Set((selectedOrganization.roles ?? []).map((role) => role.id)),
+    [selectedOrganization.roles],
+  )
 
   function openCreateRole() {
     setActionError(null)
@@ -98,9 +104,11 @@ function RolesContent() {
           values.permissionCodes,
         )
         setNotice(`${values.name} was updated.`)
+        notifications.success(`${values.name} was updated.`)
       } else {
         await createRole(organizationId, values)
         setNotice(`${values.name} was created.`)
+        notifications.success(`${values.name} was created.`)
       }
 
       setIsFormOpen(false)
@@ -109,6 +117,7 @@ function RolesContent() {
       await refreshAccess().catch(() => {})
     } catch (error) {
       setActionError(error)
+      notifications.error(error.message)
     } finally {
       setIsSaving(false)
     }
@@ -123,11 +132,13 @@ function RolesContent() {
     try {
       await deleteOrganizationRole(organizationId, roleToDelete.id)
       setNotice(`${roleToDelete.name} was deleted.`)
+      notifications.success(`${roleToDelete.name} was deleted.`)
       setRoleToDelete(null)
       await loadData()
       await refreshAccess().catch(() => {})
     } catch (error) {
       setActionError(error)
+      notifications.error(error.message)
     } finally {
       setIsSaving(false)
     }
@@ -166,7 +177,10 @@ function RolesContent() {
           </div>
         </div>
         <div className="role-grid">
-          {roles.map((role) => (
+          {roles.map((role) => {
+            const assignedToCurrentUser = selfAssignedRoleIds.has(role.id)
+
+            return (
             <article className="role-card" key={role.id}>
               <header className="role-card__header">
                 <div>
@@ -181,6 +195,11 @@ function RolesContent() {
                     >
                       {role.isSystem ? 'System' : 'Custom'}
                     </span>
+                    {assignedToCurrentUser && (
+                      <span className="type-badge type-badge--self">
+                        Assigned to you
+                      </span>
+                    )}
                   </div>
                   <p>
                     {role.description ?? 'No description has been provided.'}
@@ -209,6 +228,10 @@ function RolesContent() {
                 </span>
                 {role.isSystem ? (
                   <span className="read-only-note">Managed by the system</span>
+                ) : assignedToCurrentUser ? (
+                  <span className="read-only-note">
+                    Locked because it affects your own access
+                  </span>
                 ) : (
                   <div className="inline-actions">
                     <Button onClick={() => openEditRole(role)} variant="secondary">
@@ -224,7 +247,8 @@ function RolesContent() {
                 )}
               </footer>
             </article>
-          ))}
+            )
+          })}
         </div>
       </section>
 

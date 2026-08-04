@@ -26,7 +26,11 @@ export function Login() {
       }
       throw requestError
     }
-    const requestedPath = location.state?.from?.pathname
+    const fromLocation = location.state?.from
+    const requestedPath =
+      typeof fromLocation?.pathname === 'string'
+        ? `${fromLocation.pathname}${fromLocation.search ?? ''}${fromLocation.hash ?? ''}`
+        : undefined
     const isSafeInternalPath =
       typeof requestedPath === 'string' &&
       requestedPath.startsWith('/') &&
@@ -35,6 +39,7 @@ export function Login() {
 
     navigate(isSafeInternalPath ? requestedPath : '/dashboard', {
       replace: true,
+      state: isSafeInternalPath ? fromLocation.state : null,
     })
   }
 

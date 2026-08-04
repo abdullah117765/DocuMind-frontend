@@ -26,7 +26,8 @@ export function OrganizationSwitcher() {
         {organizations.map(({ membership, organization }) => (
           <option key={organization.id} value={organization.id}>
             {organization.name}
-            {membership.status === 'SUSPENDED' ? ' (suspended)' : ''}
+            {membership?.status === 'SUSPENDED' ? ' (suspended)' : ''}
+            {!membership ? ' (platform access)' : ''}
           </option>
         ))}
       </select>

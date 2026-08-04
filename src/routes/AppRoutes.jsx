@@ -1,9 +1,13 @@
+import { AcceptInvite } from '../features/access-control/pages/AcceptInvite.jsx'
 import { Members } from '../features/access-control/pages/Members.jsx'
 import { MyAccess } from '../features/access-control/pages/MyAccess.jsx'
+import { OrganizationSubscription } from '../features/access-control/pages/OrganizationSubscription.jsx'
+import { PlatformOrganizations } from '../features/access-control/pages/PlatformOrganizations.jsx'
 import { Roles } from '../features/access-control/pages/Roles.jsx'
 import { DeviceSessions } from '../features/auth/pages/DeviceSessions.jsx'
 import { ForgotPassword } from '../features/auth/pages/ForgotPassword.jsx'
 import { Login } from '../features/auth/pages/Login.jsx'
+import { Profile } from '../features/auth/pages/Profile.jsx'
 import { Register } from '../features/auth/pages/Register.jsx'
 import { ResetPassword } from '../features/auth/pages/ResetPassword.jsx'
 import { VerifyEmail } from '../features/auth/pages/VerifyEmail.jsx'
@@ -45,6 +49,7 @@ export function AppRoutes() {
   }
 
   if (pathname === '/verify-email') return <VerifyEmail />
+  if (pathname === '/accept-invite') return <AcceptInvite />
   if (pathname === '/forgot-password') return <ForgotPassword />
   if (pathname === '/verify-reset-code') return <VerifyResetCode />
   if (pathname === '/reset-password') return <ResetPassword />
@@ -52,9 +57,12 @@ export function AppRoutes() {
   const protectedPages = {
     '/dashboard': <Dashboard />,
     '/account/access': <MyAccess />,
+    '/account/profile': <Profile />,
     '/account/sessions': <DeviceSessions />,
     '/organization/members': <Members />,
     '/organization/roles': <Roles />,
+    '/organization/subscription': <OrganizationSubscription />,
+    '/platform/organizations': <PlatformOrganizations />,
   }
   const protectedPage = protectedPages[pathname]
 

@@ -18,6 +18,7 @@ export function Link({
   children,
   download,
   onClick,
+  state,
   target,
   to,
   ...props
@@ -34,7 +35,7 @@ export function Link({
     if (nextUrl.origin !== window.location.origin) return
 
     event.preventDefault()
-    navigate(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`)
+    navigate(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`, { state })
   }
 
   return (

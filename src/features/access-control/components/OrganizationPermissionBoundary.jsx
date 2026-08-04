@@ -51,7 +51,7 @@ export function OrganizationPermissionBoundary({ children, permission }) {
     )
   }
 
-  if (selectedOrganization.membership.status === 'SUSPENDED') {
+  if (selectedOrganization.membership?.status === 'SUSPENDED') {
     return (
       <main className="page">
         <section className="empty-state">

@@ -117,7 +117,7 @@ export function MyAccess() {
         <div className="section-heading">
           <div>
             <p className="eyebrow">Workspaces</p>
-            <h2>Organization memberships</h2>
+            <h2>Organization access</h2>
           </div>
         </div>
 
@@ -140,15 +140,21 @@ export function MyAccess() {
                         {organizationAccess.organization.slug}
                       </span>
                     </div>
-                    <span
-                      className={`status-badge ${
-                        organizationAccess.membership.status === 'ACTIVE'
-                          ? 'status-badge--success'
-                          : 'status-badge--warning'
-                      }`}
-                    >
-                      {organizationAccess.membership.status}
-                    </span>
+                    {organizationAccess.membership ? (
+                      <span
+                        className={`status-badge ${
+                          organizationAccess.membership.status === 'ACTIVE'
+                            ? 'status-badge--success'
+                            : 'status-badge--warning'
+                        }`}
+                      >
+                        {organizationAccess.membership.status}
+                      </span>
+                    ) : (
+                      <span className="status-badge status-badge--success">
+                        Platform access
+                      </span>
+                    )}
                   </div>
                   <RoleList
                     emptyLabel="No organization role is assigned."
@@ -172,7 +178,7 @@ export function MyAccess() {
         ) : (
           <section className="empty-state">
             <div>
-              <h2>No organization memberships</h2>
+              <h2>No organization access</h2>
               <p>
                 Ask an organization administrator to add your verified email.
               </p>

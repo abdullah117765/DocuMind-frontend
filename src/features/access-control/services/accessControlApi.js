@@ -27,6 +27,129 @@ export async function getSelectedOrganizationAccess(organizationId) {
   return getResponseData(response).organizationAccess
 }
 
+export async function getPlatformOrganizations() {
+  const response = await apiRequest('/platform/organizations', {
+    cache: 'no-store',
+    requiresAuth: true,
+  })
+
+  return getResponseData(response).organizations
+}
+
+export async function createOrganization(organization) {
+  const response = await csrfRequest('/platform/organizations', {
+    body: organization,
+    method: 'POST',
+    requiresAuth: true,
+  })
+
+  return getResponseData(response).organization
+}
+
+export async function getOrganizationSubscription(organizationId) {
+  const response = await apiRequest(
+    organizationPath(organizationId, '/subscription'),
+    {
+      cache: 'no-store',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).subscription
+}
+
+export async function getOrganizationLimits(organizationId) {
+  const response = await apiRequest(organizationPath(organizationId, '/limits'), {
+    cache: 'no-store',
+    requiresAuth: true,
+  })
+
+  return getResponseData(response).limits
+}
+
+export async function updateOrganizationSubscription(organizationId, values) {
+  const response = await csrfRequest(
+    `/platform/organizations/${encodeURIComponent(organizationId)}/subscription`,
+    {
+      body: values,
+      method: 'PATCH',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).subscription
+}
+
+export async function updateOrganizationLimits(organizationId, values) {
+  const response = await csrfRequest(
+    `/platform/organizations/${encodeURIComponent(organizationId)}/limits`,
+    {
+      body: values,
+      method: 'PATCH',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).limits
+}
+
+export async function getOrganizationInvites(organizationId) {
+  const response = await apiRequest(
+    organizationPath(organizationId, '/invites'),
+    {
+      cache: 'no-store',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).invites
+}
+
+export async function inviteOrganizationMember(organizationId, invite) {
+  const response = await csrfRequest(
+    organizationPath(organizationId, '/invites'),
+    {
+      body: invite,
+      method: 'POST',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).invite
+}
+
+export function revokeOrganizationInvite(organizationId, inviteId) {
+  return csrfRequest(
+    organizationPath(organizationId, `/invites/${encodeURIComponent(inviteId)}`),
+    {
+      method: 'DELETE',
+      requiresAuth: true,
+    },
+  )
+}
+
+export async function previewOrganizationInvite(token) {
+  const response = await apiRequest('/organization-invites/preview', {
+    body: { token },
+    method: 'POST',
+  })
+
+  return getResponseData(response)
+}
+
+export async function acceptOrganizationInvite(token) {
+  const response = await csrfRequest('/organization-invites/accept', {
+    body: { token },
+    method: 'POST',
+    requiresAuth: true,
+  })
+
+  return {
+    ...getResponseData(response),
+    message: response.message,
+  }
+}
+
 export async function getPermissions(organizationId) {
   const response = await apiRequest(
     organizationPath(organizationId, '/permissions'),
