@@ -1,16 +1,12 @@
 import { AcceptInvite } from '../features/access-control/pages/AcceptInvite.jsx'
-import { DiscoverOrganizations } from '../features/access-control/pages/DiscoverOrganizations.jsx'
 import { Members } from '../features/access-control/pages/Members.jsx'
 import { MyAccess } from '../features/access-control/pages/MyAccess.jsx'
-import { OrganizationSettings } from '../features/access-control/pages/OrganizationSettings.jsx'
-import { OrganizationSubscription } from '../features/access-control/pages/OrganizationSubscription.jsx'
 import { PlatformOrganizations } from '../features/access-control/pages/PlatformOrganizations.jsx'
 import { Roles } from '../features/access-control/pages/Roles.jsx'
 import { DeviceSessions } from '../features/auth/pages/DeviceSessions.jsx'
 import { ForgotPassword } from '../features/auth/pages/ForgotPassword.jsx'
 import { Login } from '../features/auth/pages/Login.jsx'
 import { Profile } from '../features/auth/pages/Profile.jsx'
-import { Register } from '../features/auth/pages/Register.jsx'
 import { ResetPassword } from '../features/auth/pages/ResetPassword.jsx'
 import { VerifyEmail } from '../features/auth/pages/VerifyEmail.jsx'
 import { VerifyResetCode } from '../features/auth/pages/VerifyResetCode.jsx'
@@ -43,11 +39,21 @@ export function AppRoutes() {
     return <Navigate replace to={isAuthenticated ? '/dashboard' : '/login'} />
   }
 
-  if (pathname === '/login' || pathname === '/register') {
+  if (pathname === '/login') {
     if (status === 'loading') return <FullPageLoader />
     if (isAuthenticated) return <Navigate replace to="/dashboard" />
 
-    return pathname === '/login' ? <Login /> : <Register />
+    return <Login />
+  }
+
+  if (pathname === '/register') {
+    return (
+      <Navigate
+        replace
+        state={{ message: 'Accounts are created by invitation only.' }}
+        to="/login"
+      />
+    )
   }
 
   if (pathname === '/verify-email') return <VerifyEmail />
@@ -61,11 +67,8 @@ export function AppRoutes() {
     '/account/access': <MyAccess />,
     '/account/profile': <Profile />,
     '/account/sessions': <DeviceSessions />,
-    '/organizations/discover': <DiscoverOrganizations />,
     '/organization/members': <Members />,
     '/organization/roles': <Roles />,
-    '/organization/settings': <OrganizationSettings />,
-    '/organization/subscription': <OrganizationSubscription />,
     '/platform/audit-logs': <AuditLogs />,
     '/platform/organizations': <PlatformOrganizations />,
     '/platform/users': <Users />,

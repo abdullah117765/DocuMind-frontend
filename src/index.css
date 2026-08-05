@@ -742,6 +742,21 @@ p {
   box-shadow: 0 0 0 3px rgb(91 76 240 / 12%);
 }
 
+.organization-switcher--static strong {
+  min-height: 2.35rem;
+  display: flex;
+  align-items: center;
+  padding: 0.45rem 0.65rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  color: var(--heading);
+  background: var(--surface);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .app-nav {
   display: flex;
   grid-area: nav;
@@ -907,16 +922,14 @@ p {
 }
 
 .chip-list,
-.permission-chip-list,
-.permission-code-list {
+.permission-chip-list {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
 }
 
 .role-chip,
-.permission-chip,
-.permission-code-list code {
+.permission-chip {
   display: inline-flex;
   align-items: center;
   width: fit-content;
@@ -935,12 +948,6 @@ p {
   border: 1px solid var(--border);
   color: var(--text);
   background: var(--surface-subtle);
-}
-
-.permission-code-list code {
-  color: #4c3eaf;
-  background: #f4f2ff;
-  overflow-wrap: anywhere;
 }
 
 .access-summary-grid,
@@ -1035,20 +1042,6 @@ p {
   color: var(--muted);
   font-size: 0.82rem;
   line-height: 1.6;
-}
-
-.subscription-layout {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1.25rem;
-  align-items: start;
-}
-
-.settings-layout {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1.25rem;
-  align-items: start;
 }
 
 .settings-panel {
@@ -1196,6 +1189,10 @@ p {
 .invite-account-actions {
   display: grid;
   gap: 0.75rem;
+}
+
+.invite-activation-form {
+  padding-top: 0.25rem;
 }
 
 .invite-list {
@@ -1603,6 +1600,20 @@ p {
   font-size: 0.76rem;
 }
 
+.role-limit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0.35rem 0 0.75rem;
+}
+
+.role-limit-row p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
 .role-options__list {
   max-height: 19rem;
   display: grid;
@@ -1614,6 +1625,11 @@ p {
   padding: 0.8rem;
   border: 1px solid var(--border);
   border-radius: 0.7rem;
+}
+
+.role-option:has(input:disabled:not(:checked)) {
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
 .member-identity {
@@ -2279,8 +2295,6 @@ td {
   .metric-grid,
   .platform-organization-layout,
   .profile-layout,
-  .settings-layout,
-  .subscription-layout,
   .permission-catalog {
     grid-template-columns: 1fr;
   }

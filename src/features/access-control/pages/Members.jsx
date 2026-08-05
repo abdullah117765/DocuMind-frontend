@@ -10,15 +10,12 @@ import { OrganizationPermissionBoundary } from '../components/OrganizationPermis
 import { useAccessControl } from '../hooks/useAccessControl.js'
 import {
   addMember,
-  acceptJoinRequest,
   getOrganizationInvites,
-  getOrganizationJoinRequests,
   getMembers,
   getRoles,
   inviteOrganizationMember,
   removeMember,
   replaceMemberRoles,
-  rejectJoinRequest,
   resendOrganizationInvite,
   revokeOrganizationInvite,
   updateMemberStatus,
@@ -29,6 +26,10 @@ function formatDate(value) {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(value))
+}
+
+function getMemberRole(member) {
+  return member.roles?.[0] ?? null
 }
 
 function MembersContent() {
@@ -42,15 +43,11 @@ function MembersContent() {
   const [isInviteOpen, setIsInviteOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-  const [joinRequestToAccept, setJoinRequestToAccept] = useState(null)
   const [inviteToRevoke, setInviteToRevoke] = useState(null)
   const [invites, setInvites] = useState([])
-  const [joinRequests, setJoinRequests] = useState([])
   const [memberToRemove, setMemberToRemove] = useState(null)
   const [members, setMembers] = useState([])
   const [notice, setNotice] = useState('')
-  const [rejectingRequest, setRejectingRequest] = useState(null)
-  const [rejectionReason, setRejectionReason] = useState('')
   const [roles, setRoles] = useState([])
 
   const loadData = useCallback(async () => {
@@ -58,22 +55,15 @@ function MembersContent() {
     setIsLoading(true)
 
     try {
-      const [
-        nextMembers,
-        nextRoles,
-        nextInvites,
-        nextJoinRequests,
-      ] = await Promise.all([
+      const [nextMembers, nextRoles, nextInvites] = await Promise.all([
         getMembers(organizationId),
         getRoles(organizationId),
         getOrganizationInvites(organizationId),
-        getOrganizationJoinRequests(organizationId),
       ])
 
       setMembers(nextMembers)
       setRoles(nextRoles)
       setInvites(nextInvites)
-      setJoinRequests(nextJoinRequests)
     } catch (error) {
       setActionError(error)
     } finally {
@@ -85,12 +75,9 @@ function MembersContent() {
     setEditingMember(null)
     setIsAddOpen(false)
     setIsInviteOpen(false)
-    setJoinRequestToAccept(null)
     setInviteToRevoke(null)
     setMemberToRemove(null)
     setNotice('')
-    setRejectingRequest(null)
-    setRejectionReason('')
     void loadData()
   }, [loadData])
 
@@ -141,7 +128,7 @@ function MembersContent() {
     }
   }
 
-  async function handleUpdateRoles({ roleIds }) {
+  async function handleUpdateRole({ roleIds }) {
     if (!editingMember) return
 
     setActionError(null)
@@ -151,7 +138,7 @@ function MembersContent() {
       await replaceMemberRoles(organizationId, editingMember.id, roleIds)
       const email = editingMember.user.email
       setEditingMember(null)
-      await completeMutation(`Roles for ${email} were updated.`)
+      await completeMutation(`Role for ${email} was updated.`)
     } catch (error) {
       setActionError(error)
       notifications.error(error.message)
@@ -235,57 +222,11 @@ function MembersContent() {
   const activeMembers = members.filter((member) => member.status === 'ACTIVE')
   const pendingInvites = invites.filter((invite) => invite.status === 'PENDING')
   const failedInvites = invites.filter((invite) => invite.lastSendFailureAt)
-  const pendingJoinRequests = joinRequests.filter(
-    (joinRequest) => joinRequest.status === 'PENDING',
-  )
-
-  async function handleAcceptJoinRequest({ roleIds }) {
-    if (!joinRequestToAccept) return
-
-    setActionError(null)
-    setIsSaving(true)
-
-    try {
-      await acceptJoinRequest(organizationId, joinRequestToAccept.id, roleIds)
-      const email = joinRequestToAccept.user.email
-      setJoinRequestToAccept(null)
-      await completeMutation(`${email} was added to the organization.`)
-    } catch (error) {
-      setActionError(error)
-      notifications.error(error.message)
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  async function handleRejectJoinRequest() {
-    if (!rejectingRequest) return
-
-    setActionError(null)
-    setIsSaving(true)
-
-    try {
-      await rejectJoinRequest(
-        organizationId,
-        rejectingRequest.id,
-        rejectionReason,
-      )
-      const email = rejectingRequest.user.email
-      setRejectingRequest(null)
-      setRejectionReason('')
-      await completeMutation(`Join request from ${email} was rejected.`)
-    } catch (error) {
-      setActionError(error)
-      notifications.error(error.message)
-    } finally {
-      setIsSaving(false)
-    }
-  }
 
   if (isLoading) {
     return (
       <main className="page">
-        <Loader label="Loading organization members…" />
+        <Loader label="Loading organization members..." />
       </main>
     )
   }
@@ -297,8 +238,8 @@ function MembersContent() {
           <p className="eyebrow">User management</p>
           <h1>Organization members</h1>
           <p>
-            Add verified users, assign one or more roles, and control workspace
-            access for {selectedOrganization.organization.name}.
+            Invite members, assign exactly one role, and control access for{' '}
+            {selectedOrganization.organization.name}.
           </p>
         </div>
         <div className="inline-actions">
@@ -307,7 +248,6 @@ function MembersContent() {
               setActionError(null)
               setIsInviteOpen(true)
             }}
-            variant="secondary"
           >
             Invite member
           </Button>
@@ -316,8 +256,9 @@ function MembersContent() {
               setActionError(null)
               setIsAddOpen(true)
             }}
+            variant="secondary"
           >
-            Add member
+            Add existing user
           </Button>
         </div>
       </header>
@@ -335,10 +276,6 @@ function MembersContent() {
           <strong>{pendingInvites.length}</strong>
         </article>
         <article>
-          <span>Join requests</span>
-          <strong>{pendingJoinRequests.length}</strong>
-        </article>
-        <article>
           <span>Email issues</span>
           <strong>{failedInvites.length}</strong>
         </article>
@@ -348,102 +285,97 @@ function MembersContent() {
         {members.length ? (
           members.map((member) => {
             const isCurrentUser = member.user.id === user.id
+            const role = getMemberRole(member)
 
             return (
-            <article className="member-card" key={member.id}>
-              <div className="member-card__identity">
-                <span aria-hidden="true" className="member-avatar">
-                  {member.user.email.slice(0, 1).toUpperCase()}
-                </span>
-                <div>
-                  <h2>{member.user.email}</h2>
-                  <div className="member-card__meta">
-                    <span
-                      className={`status-badge ${
-                        member.status === 'ACTIVE'
-                          ? 'status-badge--success'
-                          : 'status-badge--warning'
-                      }`}
-                    >
-                      {member.status}
-                    </span>
-                    {member.user.isVerified && (
-                      <span className="verified-label">Verified account</span>
-                    )}
-                    {isCurrentUser && (
-                      <span className="verified-label">This is you</span>
-                    )}
+              <article className="member-card" key={member.id}>
+                <div className="member-card__identity">
+                  <span aria-hidden="true" className="member-avatar">
+                    {member.user.email.slice(0, 1).toUpperCase()}
+                  </span>
+                  <div>
+                    <h2>{member.user.email}</h2>
+                    <div className="member-card__meta">
+                      <span
+                        className={`status-badge ${
+                          member.status === 'ACTIVE'
+                            ? 'status-badge--success'
+                            : 'status-badge--warning'
+                        }`}
+                      >
+                        {member.status}
+                      </span>
+                      {member.user.isVerified && (
+                        <span className="verified-label">Verified account</span>
+                      )}
+                      {isCurrentUser && (
+                        <span className="verified-label">This is you</span>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="member-card__roles">
-                <span className="card__label">Assigned roles</span>
-                {member.roles.length ? (
-                  <div className="chip-list">
-                    {member.roles.map((role) => (
-                      <span className="role-chip" key={role.id}>
-                        {role.name}
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="muted-copy">No roles assigned</span>
-                )}
-              </div>
+                <div className="member-card__roles">
+                  <span className="card__label">Current role</span>
+                  {role ? (
+                    <span className="role-chip">{role.name}</span>
+                  ) : (
+                    <span className="muted-copy">No role assigned</span>
+                  )}
+                </div>
 
-              <div className="member-card__actions">
-                <Button
-                  disabled={isSaving || isCurrentUser}
-                  onClick={() => {
-                    setActionError(null)
-                    setEditingMember(member)
-                  }}
-                  title={
-                    isCurrentUser
-                      ? 'You cannot change your own organization roles.'
-                      : undefined
-                  }
-                  variant="secondary"
-                >
-                  Edit roles
-                </Button>
-                <Button
-                  disabled={isSaving || isCurrentUser}
-                  onClick={() => void handleStatusChange(member)}
-                  title={
-                    isCurrentUser
-                      ? 'You cannot suspend or reactivate your own membership.'
-                      : undefined
-                  }
-                  variant="secondary"
-                >
-                  {member.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
-                </Button>
-                <Button
-                  disabled={isSaving || isCurrentUser}
-                  onClick={() => {
-                    setActionError(null)
-                    setMemberToRemove(member)
-                  }}
-                  title={
-                    isCurrentUser
-                      ? 'You cannot remove your own membership.'
-                      : undefined
-                  }
-                  variant="danger"
-                >
-                  Remove
-                </Button>
-              </div>
-            </article>
+                <div className="member-card__actions">
+                  <Button
+                    disabled={isSaving || isCurrentUser}
+                    onClick={() => {
+                      setActionError(null)
+                      setEditingMember(member)
+                    }}
+                    title={
+                      isCurrentUser
+                        ? 'You cannot change your own organization role.'
+                        : undefined
+                    }
+                    variant="secondary"
+                  >
+                    Edit role
+                  </Button>
+                  <Button
+                    disabled={isSaving || isCurrentUser}
+                    onClick={() => void handleStatusChange(member)}
+                    title={
+                      isCurrentUser
+                        ? 'You cannot suspend or reactivate your own membership.'
+                        : undefined
+                    }
+                    variant="secondary"
+                  >
+                    {member.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
+                  </Button>
+                  <Button
+                    disabled={isSaving || isCurrentUser}
+                    onClick={() => {
+                      setActionError(null)
+                      setMemberToRemove(member)
+                    }}
+                    title={
+                      isCurrentUser
+                        ? 'You cannot remove your own membership.'
+                        : undefined
+                    }
+                    variant="danger"
+                  >
+                    Remove
+                  </Button>
+                </div>
+              </article>
             )
           })
         ) : (
           <section className="empty-state">
             <div>
               <h2>No members found</h2>
-              <p>Add a verified account to start assigning roles.</p>
+              <p>Invite the first organization member to begin onboarding.</p>
             </div>
           </section>
         )}
@@ -483,22 +415,19 @@ function MembersContent() {
                 >
                   {invite.status}
                 </span>
-                <div className="chip-list">
-                  {invite.roles.length ? (
-                    invite.roles.map((role) => (
-                      <span className="role-chip" key={role.id}>
-                        {role.name}
-                      </span>
-                    ))
+                <div className="member-card__roles">
+                  <span className="card__label">Invited role</span>
+                  {invite.roles?.[0] ? (
+                    <span className="role-chip">{invite.roles[0].name}</span>
                   ) : (
-                    <span className="muted-copy">No roles assigned</span>
+                    <span className="muted-copy">No role assigned</span>
                   )}
                 </div>
                 {invite.lastSendFailureAt && (
                   <Alert tone="warning" title="Email delivery failed">
                     Last failed {formatDate(invite.lastSendFailureAt)}
                     {invite.lastSendFailureReason
-                      ? ` — ${invite.lastSendFailureReason}`
+                      ? ` - ${invite.lastSendFailureReason}`
                       : '. Fix SMTP settings, then resend or revoke this invite.'}
                   </Alert>
                 )}
@@ -534,83 +463,10 @@ function MembersContent() {
         )}
       </section>
 
-      <section className="section-block">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Access requests</p>
-            <h2>Join requests</h2>
-            <p>
-              Review users who asked to join this organization, then choose the
-              role they should receive before accepting.
-            </p>
-          </div>
-        </div>
-
-        {joinRequests.length ? (
-          <div className="invite-list">
-            {joinRequests.map((joinRequest) => (
-              <article className="invite-card" key={joinRequest.id}>
-                <div>
-                  <h3>{joinRequest.user.email}</h3>
-                  <p className="muted-copy">
-                    Requested {formatDate(joinRequest.createdAt)}
-                  </p>
-                  {joinRequest.message && <p>{joinRequest.message}</p>}
-                  {joinRequest.rejectionReason && (
-                    <p className="muted-copy">
-                      Rejection reason: {joinRequest.rejectionReason}
-                    </p>
-                  )}
-                </div>
-                <span
-                  className={`status-badge ${
-                    joinRequest.status === 'PENDING'
-                      ? 'status-badge--warning'
-                      : joinRequest.status === 'ACCEPTED'
-                        ? 'status-badge--success'
-                        : ''
-                  }`}
-                >
-                  {joinRequest.status}
-                </span>
-                <div className="member-card__actions">
-                  <Button
-                    disabled={isSaving || joinRequest.status !== 'PENDING'}
-                    onClick={() => {
-                      setActionError(null)
-                      setJoinRequestToAccept(joinRequest)
-                    }}
-                  >
-                    Accept
-                  </Button>
-                  <Button
-                    disabled={isSaving || joinRequest.status !== 'PENDING'}
-                    onClick={() => {
-                      setRejectionReason('')
-                      setRejectingRequest(joinRequest)
-                    }}
-                    variant="danger"
-                  >
-                    Reject
-                  </Button>
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <section className="empty-state empty-state--compact">
-            <div>
-              <h2>No join requests</h2>
-              <p>Requests from users will appear here for review.</p>
-            </div>
-          </section>
-        )}
-      </section>
-
       <Modal
         isOpen={isAddOpen}
         onClose={() => !isSaving && setIsAddOpen(false)}
-        title="Add organization member"
+        title="Add existing user"
       >
         {actionError && <Alert>{actionError.message}</Alert>}
         {isAddOpen && (
@@ -627,7 +483,7 @@ function MembersContent() {
       <Modal
         isOpen={Boolean(editingMember)}
         onClose={() => !isSaving && setEditingMember(null)}
-        title="Edit member roles"
+        title="Edit member role"
       >
         {actionError && <Alert>{actionError.message}</Alert>}
         {editingMember && (
@@ -636,7 +492,7 @@ function MembersContent() {
             key={editingMember.id}
             member={editingMember}
             onCancel={() => setEditingMember(null)}
-            onSubmit={handleUpdateRoles}
+            onSubmit={handleUpdateRole}
             roles={roles}
           />
         )}
@@ -667,8 +523,8 @@ function MembersContent() {
       >
         {actionError && <Alert>{actionError.message}</Alert>}
         <p>
-          Removing <strong>{memberToRemove?.user.email}</strong> revokes every
-          assigned organization role. They can be added again later.
+          Removing <strong>{memberToRemove?.user.email}</strong> revokes their
+          organization role. They can be invited again later.
         </p>
         <div className="form-actions">
           <Button
@@ -683,7 +539,7 @@ function MembersContent() {
             onClick={() => void handleRemoveMember()}
             variant="danger"
           >
-            {isSaving ? 'Removing…' : 'Remove member'}
+            {isSaving ? 'Removing...' : 'Remove member'}
           </Button>
         </div>
       </Modal>
@@ -712,69 +568,6 @@ function MembersContent() {
             variant="danger"
           >
             {isSaving ? 'Revoking...' : 'Revoke invite'}
-          </Button>
-        </div>
-      </Modal>
-
-      <Modal
-        isOpen={Boolean(joinRequestToAccept)}
-        onClose={() => !isSaving && setJoinRequestToAccept(null)}
-        title="Accept join request"
-      >
-        {actionError && <Alert>{actionError.message}</Alert>}
-        {joinRequestToAccept && (
-          <>
-            <p>
-              Choose roles for <strong>{joinRequestToAccept.user.email}</strong>{' '}
-              before adding them to {selectedOrganization.organization.name}.
-            </p>
-            <MemberForm
-              isSaving={isSaving}
-              key={joinRequestToAccept.id}
-              mode="accept"
-              onCancel={() => setJoinRequestToAccept(null)}
-              onSubmit={handleAcceptJoinRequest}
-              roles={roles}
-            />
-          </>
-        )}
-      </Modal>
-
-      <Modal
-        isOpen={Boolean(rejectingRequest)}
-        onClose={() => !isSaving && setRejectingRequest(null)}
-        title="Reject join request?"
-      >
-        {actionError && <Alert>{actionError.message}</Alert>}
-        <p>
-          Rejecting <strong>{rejectingRequest?.user.email}</strong> keeps them
-          out of this organization. They can request again after the cooldown.
-        </p>
-        <label className="field">
-          <span className="field__label">Reason</span>
-          <textarea
-            disabled={isSaving}
-            maxLength={1000}
-            onChange={(event) => setRejectionReason(event.target.value)}
-            placeholder="Optional reason shown to the requester"
-            rows={4}
-            value={rejectionReason}
-          />
-        </label>
-        <div className="form-actions">
-          <Button
-            disabled={isSaving}
-            onClick={() => setRejectingRequest(null)}
-            variant="secondary"
-          >
-            Cancel
-          </Button>
-          <Button
-            disabled={isSaving}
-            onClick={() => void handleRejectJoinRequest()}
-            variant="danger"
-          >
-            {isSaving ? 'Rejecting...' : 'Reject request'}
           </Button>
         </div>
       </Modal>

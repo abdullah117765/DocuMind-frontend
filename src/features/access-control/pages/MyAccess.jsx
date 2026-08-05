@@ -2,57 +2,40 @@ import { Link } from '../../../routes/RouterElements.jsx'
 import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
+import {
+  getPrimaryRoleName,
+  isSuperAdminAccess,
+} from '../../../shared/utils/accessDisplay.js'
+import { useAuth } from '../../auth/hooks/useAuth.js'
 import { useAccessControl } from '../hooks/useAccessControl.js'
 
-function RoleList({ emptyLabel, roles = [] }) {
-  if (roles.length === 0) {
-    return <p className="muted-copy">{emptyLabel}</p>
-  }
-
-  return (
-    <div className="chip-list" aria-label="Assigned roles">
-      {roles.map((role) => (
-        <span className="role-chip" key={role.id}>
-          {role.name}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-function PermissionList({ permissions = [] }) {
-  if (permissions.length === 0) {
-    return <p className="muted-copy">No effective permissions.</p>
-  }
-
-  return (
-    <div className="permission-code-list" aria-label="Effective permissions">
-      {permissions.map((permission) => (
-        <code key={permission}>{permission}</code>
-      ))}
-    </div>
+function RoleBadge({ roles = [] }) {
+  return roles.length ? (
+    <span className="role-chip">{getPrimaryRoleName(roles)}</span>
+  ) : (
+    <p className="muted-copy">No role assigned.</p>
   )
 }
 
 export function MyAccess() {
   const {
     access,
-    effectivePermissions,
     effectiveRoles,
     error,
     hasPermission,
     refreshAccess,
     selectedOrganization,
-    setSelectedOrganizationId,
     status,
   } = useAccessControl()
+  const { user } = useAuth()
+  const isSuperAdmin = isSuperAdminAccess(user, access)
   const canManageMembers = hasPermission('members.manage')
-  const canManageRoles = hasPermission('roles.manage')
+  const canManageRoles = isSuperAdmin
 
   if (status === 'loading' || status === 'idle') {
     return (
       <main className="page">
-        <Loader label="Resolving your roles and permissions…" />
+        <Loader label="Resolving your role..." />
       </main>
     )
   }
@@ -61,11 +44,11 @@ export function MyAccess() {
     <main className="page">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Effective authorization</p>
+          <p className="eyebrow">Access summary</p>
           <h1>My access</h1>
           <p>
-            Roles and permissions are resolved by the backend for your account
-            and selected organization.
+            This page shows your role and organization status without exposing
+            the internal permission catalog.
           </p>
         </div>
         <Button
@@ -73,7 +56,7 @@ export function MyAccess() {
           onClick={() => void refreshAccess().catch(() => {})}
           variant="secondary"
         >
-          Refresh access
+          Refresh
         </Button>
       </header>
 
@@ -81,45 +64,37 @@ export function MyAccess() {
 
       <section className="access-summary-grid">
         <article className="card">
-          <span className="card__label">Platform access</span>
-          <h2>Platform roles</h2>
-          <RoleList
-            emptyLabel="No platform-level role is assigned."
-            roles={access?.platform?.roles}
-          />
-          <div className="card__section">
-            <span className="card__label">Platform permissions</span>
-            <PermissionList permissions={access?.platform?.permissions} />
-          </div>
+          <span className="card__label">Platform role</span>
+          <h2>{isSuperAdmin ? 'Super Admin' : 'No platform role'}</h2>
+          <p className="muted-copy">
+            {isSuperAdmin
+              ? 'You can manage organizations across the platform.'
+              : 'Platform-level actions are restricted.'}
+          </p>
         </article>
 
         <article className="card">
-          <span className="card__label">Organization reach</span>
-          <h2>
-            {access?.hasGlobalOrganizationAccess
-              ? 'Global organization access'
-              : 'Membership-based access'}
-          </h2>
-          <p>
-            {access?.hasGlobalOrganizationAccess
-              ? 'A platform role grants permissions across organizations.'
-              : 'Organization access comes from active memberships and their roles.'}
+          <span className="card__label">Organization</span>
+          <h2>{selectedOrganization?.organization.name ?? 'No organization'}</h2>
+          <p className="muted-copy">
+            {selectedOrganization
+              ? selectedOrganization.organization.slug
+              : 'Ask an administrator to invite your account.'}
           </p>
-          <strong className="access-count">
-            {access?.organizations?.length ?? 0}
-          </strong>
-          <span className="muted-copy">
-            organization{access?.organizations?.length === 1 ? '' : 's'} listed
-            for this account
-          </span>
+        </article>
+
+        <article className="card">
+          <span className="card__label">Current role</span>
+          <h2>{getPrimaryRoleName(effectiveRoles)}</h2>
+          <p className="muted-copy">One account can hold one role at a time.</p>
         </article>
       </section>
 
       <section className="section-block">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Workspaces</p>
-            <h2>Organization access</h2>
+            <p className="eyebrow">Organization access</p>
+            <h2>{access?.organizations?.length ?? 0} organization records</h2>
           </div>
         </div>
 
@@ -154,25 +129,11 @@ export function MyAccess() {
                       </span>
                     ) : (
                       <span className="status-badge status-badge--success">
-                        Platform access
+                        Platform view
                       </span>
                     )}
                   </div>
-                  <RoleList
-                    emptyLabel="No organization role is assigned."
-                    roles={organizationAccess.roles}
-                  />
-                  <Button
-                    disabled={isSelected}
-                    onClick={() =>
-                      setSelectedOrganizationId(
-                        organizationAccess.organization.id,
-                      )
-                    }
-                    variant="secondary"
-                  >
-                    {isSelected ? 'Selected workspace' : 'Use this workspace'}
-                  </Button>
+                  <RoleBadge roles={organizationAccess.roles} />
                 </article>
               )
             })}
@@ -181,9 +142,7 @@ export function MyAccess() {
           <section className="empty-state">
             <div>
               <h2>No organization access</h2>
-              <p>
-                Ask an organization administrator to add your verified email.
-              </p>
+              <p>Ask an administrator to invite your account.</p>
             </div>
           </section>
         )}
@@ -193,7 +152,7 @@ export function MyAccess() {
         <section className="card selected-access">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Selected workspace</p>
+              <p className="eyebrow">Selected organization</p>
               <h2>{selectedOrganization.organization.name}</h2>
             </div>
             {(canManageMembers || canManageRoles) && (
@@ -213,15 +172,15 @@ export function MyAccess() {
           </div>
           <div className="access-detail-grid">
             <div>
-              <span className="card__label">Effective roles</span>
-              <RoleList
-                emptyLabel="No effective role is assigned."
-                roles={effectiveRoles}
-              />
+              <span className="card__label">Your role here</span>
+              <RoleBadge roles={effectiveRoles} />
             </div>
             <div>
-              <span className="card__label">Effective permissions</span>
-              <PermissionList permissions={effectivePermissions} />
+              <span className="card__label">Account status</span>
+              <p className="muted-copy">
+                Access is calculated by the backend and checked again on every
+                protected request.
+              </p>
             </div>
           </div>
         </section>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
@@ -13,9 +13,7 @@ import {
 } from '../../auth/components/validation.js'
 import {
   createUser,
-  getPlatformRoles,
   getUsers,
-  replacePlatformRoles,
   updateUser,
 } from '../services/userApi.js'
 
@@ -39,14 +37,10 @@ function OrganizationMembershipSummary({ memberships = [] }) {
           <span className="muted-copy">{membership.status}</span>
           {membership.roles.length ? (
             <div className="chip-list">
-              {membership.roles.map((role) => (
-                <span className="role-chip" key={role.id}>
-                  {role.name}
-                </span>
-              ))}
+              <span className="role-chip">{membership.roles[0].name}</span>
             </div>
           ) : (
-            <span className="muted-copy">No roles assigned</span>
+            <span className="muted-copy">No role assigned</span>
           )}
         </div>
       ))}
@@ -155,93 +149,6 @@ function CreateUserModal({ isOpen, isSaving, onClose, onSubmit }) {
   )
 }
 
-function PlatformRoleModal({
-  currentUserId,
-  isOpen,
-  isSaving,
-  onClose,
-  onSubmit,
-  roles,
-  user,
-}) {
-  const [roleIds, setRoleIds] = useState([])
-  const selectedRoles = useMemo(() => new Set(roleIds), [roleIds])
-  const isSelf = user?.id === currentUserId
-
-  useEffect(() => {
-    if (user) {
-      setRoleIds(user.platformRoles.map((role) => role.id))
-    }
-  }, [user])
-
-  function toggleRole(roleId) {
-    const nextRoles = new Set(selectedRoles)
-
-    if (nextRoles.has(roleId)) {
-      nextRoles.delete(roleId)
-    } else {
-      nextRoles.add(roleId)
-    }
-
-    setRoleIds([...nextRoles])
-  }
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Platform roles">
-      {user && (
-        <form
-          className="form"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void onSubmit(user.id, roleIds)
-          }}
-        >
-          <div className="member-identity">
-            <span className="field__label">User</span>
-            <strong>{user.email}</strong>
-          </div>
-          {isSelf && (
-            <Alert tone="info">
-              You cannot change your own platform roles. This protects the last
-              Super Admin from accidental lockout.
-            </Alert>
-          )}
-          <fieldset className="role-options">
-            <legend className="field__label">Assignable platform roles</legend>
-            <div className="role-options__list">
-              {roles.map((role) => (
-                <label className="role-option" key={role.id}>
-                  <input
-                    checked={selectedRoles.has(role.id)}
-                    disabled={isSaving || isSelf}
-                    onChange={() => toggleRole(role.id)}
-                    type="checkbox"
-                  />
-                  <span>
-                    <strong>{role.name}</strong>
-                    <small>
-                      {role.permissionCodes.length} permission
-                      {role.permissionCodes.length === 1 ? '' : 's'}
-                    </small>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <div className="form-actions">
-            <Button disabled={isSaving} onClick={onClose} variant="secondary">
-              Close
-            </Button>
-            <Button disabled={isSaving || isSelf} type="submit">
-              {isSaving ? 'Saving...' : 'Save roles'}
-            </Button>
-          </div>
-        </form>
-      )}
-    </Modal>
-  )
-}
-
 export function Users() {
   const { user: currentUser } = useAuth()
   const notifications = useNotifications()
@@ -255,8 +162,6 @@ export function Users() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [pagination, setPagination] = useState(null)
-  const [platformRoles, setPlatformRoles] = useState([])
-  const [roleUser, setRoleUser] = useState(null)
   const [users, setUsers] = useState([])
 
   const loadUsers = useCallback(async () => {
@@ -264,20 +169,16 @@ export function Users() {
     setIsLoading(true)
 
     try {
-      const [userData, roleData] = await Promise.all([
-        getUsers({
-          page: 1,
-          pageSize: 50,
-          search: filters.search.trim(),
-          status: filters.status,
-          verified: filters.verified,
-        }),
-        getPlatformRoles(),
-      ])
+      const userData = await getUsers({
+        page: 1,
+        pageSize: 50,
+        search: filters.search.trim(),
+        status: filters.status,
+        verified: filters.verified,
+      })
 
       setUsers(userData.users ?? [])
       setPagination(userData.pagination ?? null)
-      setPlatformRoles(roleData)
     } catch (requestError) {
       setError(requestError)
     } finally {
@@ -326,23 +227,6 @@ export function Users() {
     }
   }
 
-  async function handleReplaceRoles(userId, roleIds) {
-    setIsSaving(true)
-    setError(null)
-
-    try {
-      const updated = await replacePlatformRoles(userId, roleIds)
-      notifications.success(`Platform roles for ${updated.email} were updated.`)
-      setRoleUser(null)
-      await loadUsers()
-    } catch (requestError) {
-      setError(requestError)
-      notifications.error(requestError.message)
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
   return (
     <main className="page page--wide">
       <header className="page-header">
@@ -350,8 +234,8 @@ export function Users() {
           <p className="eyebrow">Platform administration</p>
           <h1>Users</h1>
           <p>
-            Search accounts, manage verification and active state, and assign
-            platform roles without allowing self-demotion.
+            Search accounts, manage verification, and control active state
+            without exposing Super Admin role assignment.
           </p>
         </div>
         <div className="inline-actions">
@@ -419,7 +303,7 @@ export function Users() {
             <div className="data-table__row data-table__row--head" role="row">
               <span role="columnheader">User</span>
               <span role="columnheader">State</span>
-              <span role="columnheader">Platform roles</span>
+              <span role="columnheader">Platform role</span>
               <span role="columnheader">Organizations</span>
               <span role="columnheader">Actions</span>
             </div>
@@ -454,13 +338,11 @@ export function Users() {
                   </span>
                   <span className="chip-list" role="cell">
                     {managedUser.platformRoles.length ? (
-                      managedUser.platformRoles.map((role) => (
-                        <span className="role-chip" key={role.id}>
-                          {role.name}
-                        </span>
-                      ))
+                      <span className="role-chip">
+                        {managedUser.platformRoles[0].name}
+                      </span>
                     ) : (
-                      <span className="muted-copy">No platform roles</span>
+                      <span className="muted-copy">No platform role</span>
                     )}
                   </span>
                   <span role="cell">
@@ -469,13 +351,6 @@ export function Users() {
                     />
                   </span>
                   <span className="inline-actions" role="cell">
-                    <Button
-                      disabled={isSaving}
-                      onClick={() => setRoleUser(managedUser)}
-                      variant="secondary"
-                    >
-                      Roles
-                    </Button>
                     <Button
                       disabled={isSaving}
                       onClick={() =>
@@ -519,16 +394,6 @@ export function Users() {
         isSaving={isSaving}
         onClose={() => !isSaving && setCreateOpen(false)}
         onSubmit={handleCreateUser}
-      />
-
-      <PlatformRoleModal
-        currentUserId={currentUser.id}
-        isOpen={Boolean(roleUser)}
-        isSaving={isSaving}
-        onClose={() => !isSaving && setRoleUser(null)}
-        onSubmit={handleReplaceRoles}
-        roles={platformRoles}
-        user={roleUser}
       />
     </main>
   )

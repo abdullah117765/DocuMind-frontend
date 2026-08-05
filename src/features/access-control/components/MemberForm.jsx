@@ -16,21 +16,18 @@ export function MemberForm({
 }) {
   const [email, setEmail] = useState(member?.user.email ?? '')
   const [emailError, setEmailError] = useState('')
+  const [roleError, setRoleError] = useState('')
   const [roleIds, setRoleIds] = useState(
-    member?.roles.map(({ id }) => id) ?? [],
+    member?.roles?.[0]?.id ? [member.roles[0].id] : [],
   )
-  const selectedRoles = new Set(roleIds)
+  const selectedRoleId = roleIds[0] ?? ''
+  const maxReached = Boolean(selectedRoleId)
 
   function toggleRole(roleId) {
-    const nextRoles = new Set(selectedRoles)
-
-    if (nextRoles.has(roleId)) {
-      nextRoles.delete(roleId)
-    } else {
-      nextRoles.add(roleId)
-    }
-
-    setRoleIds([...nextRoles])
+    setRoleError('')
+    setRoleIds((currentRoleIds) =>
+      currentRoleIds[0] === roleId ? [] : [roleId],
+    )
   }
 
   function handleSubmit(event) {
@@ -42,6 +39,11 @@ export function MemberForm({
       setEmailError(nextEmailError)
 
       if (nextEmailError) return
+    }
+
+    if (roleIds.length !== 1) {
+      setRoleError('Select exactly one organization role.')
+      return
     }
 
     void onSubmit({
@@ -59,7 +61,7 @@ export function MemberForm({
           </span>
           <strong>
             {mode === 'accept'
-              ? 'Select the organization roles for this user'
+              ? 'Select one organization role for this user'
               : member.user.email}
           </strong>
         </div>
@@ -70,9 +72,7 @@ export function MemberForm({
           error={emailError}
           hint={
             mode === 'invite'
-              ? 'They will receive an email invitation.'
-              : mode === 'accept'
-                ? 'Assign roles before accepting this request.'
+              ? 'They will receive a company invitation email with a one-time password.'
               : 'The user must already have a verified account.'
           }
           label="Email"
@@ -88,31 +88,35 @@ export function MemberForm({
         />
       )}
       <fieldset className="role-options">
-        <legend className="field__label">Organization roles</legend>
-        <p>
-          Multiple roles are allowed. Choose explicitly whenever possible; if
-          none are selected, the backend may apply its default role policy.
-        </p>
+        <legend className="field__label">Organization role</legend>
+        <div className="role-limit-row">
+          <p>One person can have one role at a time.</p>
+          <span className={maxReached ? 'status-badge status-badge--warning' : 'status-badge'}>
+            {roleIds.length}/1 selected{maxReached ? ' - max reached' : ''}
+          </span>
+        </div>
+        {roleError && <p className="field__error">{roleError}</p>}
         <div className="role-options__list">
           {roles.length ? (
-            roles.map((role) => (
-            <label className="role-option" key={role.id}>
-              <input
-                checked={selectedRoles.has(role.id)}
-                disabled={isSaving}
-                onChange={() => toggleRole(role.id)}
-                type="checkbox"
-              />
-              <span>
-                <strong>{role.name}</strong>
-                <small>
-                  {role.permissions.length} permission
-                  {role.permissions.length === 1 ? '' : 's'}
-                  {role.isSystem ? ' · System role' : ' · Custom role'}
-                </small>
-              </span>
-            </label>
-            ))
+            roles.map((role) => {
+              const isSelected = selectedRoleId === role.id
+              const isDisabled = isSaving || (!isSelected && maxReached)
+
+              return (
+                <label className="role-option" key={role.id}>
+                  <input
+                    checked={isSelected}
+                    disabled={isDisabled}
+                    onChange={() => toggleRole(role.id)}
+                    type="checkbox"
+                  />
+                  <span>
+                    <strong>{role.name}</strong>
+                    <small>{role.isSystem ? 'System role' : 'Custom role'}</small>
+                  </span>
+                </label>
+              )
+            })
           ) : (
             <p className="muted-copy">No assignable roles were returned.</p>
           )}
@@ -126,12 +130,12 @@ export function MemberForm({
           {isSaving
             ? 'Saving...'
             : member
-              ? 'Save roles'
+              ? 'Save role'
               : mode === 'accept'
                 ? 'Accept request'
-              : mode === 'invite'
-                ? 'Send invite'
-                : 'Add member'}
+                : mode === 'invite'
+                  ? 'Send invite'
+                  : 'Add member'}
         </Button>
       </div>
     </form>

@@ -1,17 +1,22 @@
 import { Link } from '../../../routes/RouterElements.jsx'
+import {
+  getDisplayName,
+  getPrimaryRoleName,
+} from '../../../shared/utils/accessDisplay.js'
 import { useAccessControl } from '../../access-control/hooks/useAccessControl.js'
 import { useAuth } from '../../auth/hooks/useAuth.js'
 
 export function Dashboard() {
   const { effectiveRoles, selectedOrganization, status } = useAccessControl()
   const { session, user } = useAuth()
+  const displayName = getDisplayName(user)
 
   return (
     <main className="page">
       <header className="page-header">
         <div>
           <p className="eyebrow">Account overview</p>
-          <h1>Welcome back</h1>
+          <h1>Welcome back, {displayName}</h1>
           <p>Your verified account is ready to use.</p>
         </div>
         <span className="status-badge status-badge--success">Verified</span>
@@ -34,17 +39,15 @@ export function Dashboard() {
 
       <section className="card security-card">
         <div>
-          <p className="eyebrow">Workspace access</p>
+          <p className="eyebrow">Organization access</p>
           <h2>
             {selectedOrganization?.organization.name ??
-              (status === 'loading' ? 'Loading access…' : 'No organization')}
+              (status === 'loading' ? 'Loading access...' : 'No organization')}
           </h2>
           <p>
             {effectiveRoles.length
-              ? `Effective role${effectiveRoles.length === 1 ? '' : 's'}: ${effectiveRoles
-                  .map(({ name }) => name)
-                  .join(', ')}.`
-              : 'Review your assigned roles and effective permissions.'}
+              ? `Current role: ${getPrimaryRoleName(effectiveRoles)}.`
+              : 'Ask an administrator to invite or assign your account.'}
           </p>
         </div>
         <Link

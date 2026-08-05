@@ -46,53 +46,6 @@ export async function createOrganization(organization) {
   return getResponseData(response).organization
 }
 
-export async function getOrganizationSubscription(organizationId) {
-  const response = await apiRequest(
-    organizationPath(organizationId, '/subscription'),
-    {
-      cache: 'no-store',
-      requiresAuth: true,
-    },
-  )
-
-  return getResponseData(response).subscription
-}
-
-export async function getOrganizationLimits(organizationId) {
-  const response = await apiRequest(organizationPath(organizationId, '/limits'), {
-    cache: 'no-store',
-    requiresAuth: true,
-  })
-
-  return getResponseData(response).limits
-}
-
-export async function updateOrganizationSubscription(organizationId, values) {
-  const response = await csrfRequest(
-    `/platform/organizations/${encodeURIComponent(organizationId)}/subscription`,
-    {
-      body: values,
-      method: 'PATCH',
-      requiresAuth: true,
-    },
-  )
-
-  return getResponseData(response).subscription
-}
-
-export async function updateOrganizationLimits(organizationId, values) {
-  const response = await csrfRequest(
-    `/platform/organizations/${encodeURIComponent(organizationId)}/limits`,
-    {
-      body: values,
-      method: 'PATCH',
-      requiresAuth: true,
-    },
-  )
-
-  return getResponseData(response).limits
-}
-
 export async function getOrganizationInvites(organizationId) {
   const response = await apiRequest(
     organizationPath(organizationId, '/invites'),
@@ -158,6 +111,21 @@ export async function acceptOrganizationInvite(token) {
     method: 'POST',
     requiresAuth: true,
   })
+
+  return {
+    ...getResponseData(response),
+    message: response.message,
+  }
+}
+
+export async function acceptOrganizationInviteWithTemporaryPassword(values) {
+  const response = await csrfRequest(
+    '/organization-invites/accept-with-temporary-password',
+    {
+      body: values,
+      method: 'POST',
+    },
+  )
 
   return {
     ...getResponseData(response),
@@ -324,94 +292,4 @@ export function removeMember(organizationId, membershipId) {
       requiresAuth: true,
     },
   )
-}
-
-export async function discoverOrganizations() {
-  const response = await apiRequest('/access/organizations/discover', {
-    cache: 'no-store',
-    requiresAuth: true,
-  })
-
-  return getResponseData(response).organizations
-}
-
-export async function getMyJoinRequests() {
-  const response = await apiRequest('/access/my-join-requests', {
-    cache: 'no-store',
-    requiresAuth: true,
-  })
-
-  return getResponseData(response).joinRequests
-}
-
-export async function requestToJoinOrganization(organizationId, values) {
-  const response = await csrfRequest(
-    `/access/organizations/${encodeURIComponent(organizationId)}/join-requests`,
-    {
-      body: values,
-      method: 'POST',
-      requiresAuth: true,
-    },
-  )
-
-  return getResponseData(response).joinRequest
-}
-
-export function cancelMyJoinRequest(requestId) {
-  return csrfRequest(
-    `/access/my-join-requests/${encodeURIComponent(requestId)}`,
-    {
-      method: 'DELETE',
-      requiresAuth: true,
-    },
-  )
-}
-
-export async function getOrganizationJoinRequests(organizationId, status) {
-  const query = status ? `?status=${encodeURIComponent(status)}` : ''
-  const response = await apiRequest(
-    organizationPath(organizationId, `/join-requests${query}`),
-    {
-      cache: 'no-store',
-      requiresAuth: true,
-    },
-  )
-
-  return getResponseData(response).joinRequests
-}
-
-export async function acceptJoinRequest(organizationId, requestId, roleIds = []) {
-  const response = await csrfRequest(
-    organizationPath(
-      organizationId,
-      `/join-requests/${encodeURIComponent(requestId)}/accept`,
-    ),
-    {
-      body: { roleIds },
-      method: 'PATCH',
-      requiresAuth: true,
-    },
-  )
-
-  return getResponseData(response).joinRequest
-}
-
-export async function rejectJoinRequest(
-  organizationId,
-  requestId,
-  rejectionReason = '',
-) {
-  const response = await csrfRequest(
-    organizationPath(
-      organizationId,
-      `/join-requests/${encodeURIComponent(requestId)}/reject`,
-    ),
-    {
-      body: { rejectionReason },
-      method: 'PATCH',
-      requiresAuth: true,
-    },
-  )
-
-  return getResponseData(response).joinRequest
 }

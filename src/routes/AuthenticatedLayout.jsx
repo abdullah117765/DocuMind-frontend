@@ -5,20 +5,14 @@ import { useAuth } from '../features/auth/hooks/useAuth.js'
 import { Button } from '../shared/components/Button/Button.jsx'
 import { useNotifications } from '../shared/useNotifications.js'
 import { useTheme } from '../shared/useTheme.js'
+import {
+  getDisplayName,
+  getInitialsFromUser,
+  getPrimaryRoleName,
+  isSuperAdminAccess,
+} from '../shared/utils/accessDisplay.js'
 import { Link, NavLink } from './RouterElements.jsx'
 import { useNavigate } from './routerHooks.js'
-
-function getInitials(email = '') {
-  return (
-    email
-      .split('@')[0]
-      .split(/[._-]+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join('') || 'U'
-  )
-}
 
 export function AuthenticatedLayout({ children }) {
   const {
@@ -35,6 +29,24 @@ export function AuthenticatedLayout({ children }) {
   const [isSigningOut, setIsSigningOut] = useState(false)
   const navigate = useNavigate()
 
+  const organizations = access?.organizations ?? []
+  const isSuperAdmin = isSuperAdminAccess(user, access)
+  const canSwitchOrganizations = isSuperAdmin || organizations.length > 1
+  const displayName = getDisplayName(user)
+  const canManageMembers = hasPermission('members.manage')
+  const canManageRoles = isSuperAdmin
+  const canAccessPlatformOrganizations = hasPlatformPermission(
+    'platform.organizations.manage',
+  )
+  const canAccessPlatformUsers = hasPlatformPermission('platform.users.manage')
+  const canAccessAuditLogs = hasPlatformPermission('platform.audit_logs.view')
+  const canAccessPlatform =
+    canAccessPlatformOrganizations || canAccessPlatformUsers || canAccessAuditLogs
+  const currentRoles = selectedOrganization
+    ? effectiveRoles
+    : access?.platform?.roles ?? []
+  const currentRoleName = getPrimaryRoleName(currentRoles)
+
   async function handleSignOut() {
     setIsSigningOut(true)
 
@@ -50,20 +62,6 @@ export function AuthenticatedLayout({ children }) {
     }
   }
 
-  const canManageMembers = hasPermission('members.manage')
-  const canManageRoles = hasPermission('roles.manage')
-  const canManageSettings = hasPermission('settings.manage')
-  const canAccessPlatformOrganizations = hasPlatformPermission(
-    'platform.organizations.manage',
-  )
-  const canAccessPlatformUsers = hasPlatformPermission('platform.users.manage')
-  const canAccessAuditLogs = hasPlatformPermission('platform.audit_logs.view')
-  const canAccessPlatform =
-    canAccessPlatformOrganizations || canAccessPlatformUsers || canAccessAuditLogs
-  const currentRoles = selectedOrganization
-    ? effectiveRoles
-    : access?.platform?.roles ?? []
-
   return (
     <div className="app-shell">
       <aside className="app-sidebar">
@@ -76,24 +74,30 @@ export function AuthenticatedLayout({ children }) {
           </NavLink>
         </div>
 
-        <OrganizationSwitcher />
+        {canSwitchOrganizations ? (
+          <OrganizationSwitcher />
+        ) : selectedOrganization ? (
+          <div className="organization-switcher organization-switcher--static">
+            <span>Organization</span>
+            <strong>{selectedOrganization.organization.name}</strong>
+          </div>
+        ) : null}
 
         <nav aria-label="Primary navigation" className="side-nav">
-          <span className="side-nav__label">Workspace</span>
+          <span className="side-nav__label">Main</span>
           <NavLink to="/dashboard">Overview</NavLink>
           <NavLink to="/account/access">My access</NavLink>
-          <NavLink to="/organizations/discover">Discover orgs</NavLink>
-          {canManageRoles && (
-            <NavLink to="/organization/roles">Roles</NavLink>
-          )}
-          {canManageMembers && (
-            <NavLink to="/organization/members">Members</NavLink>
-          )}
-          {hasPermission('billing.manage') && (
-            <NavLink to="/organization/subscription">Subscription</NavLink>
-          )}
-          {canManageSettings && (
-            <NavLink to="/organization/settings">Settings</NavLink>
+
+          {(canManageMembers || canManageRoles) && (
+            <>
+              <span className="side-nav__label">Organization</span>
+              {canManageMembers && (
+                <NavLink to="/organization/members">Members</NavLink>
+              )}
+              {canManageRoles && (
+                <NavLink to="/organization/roles">Roles</NavLink>
+              )}
+            </>
           )}
 
           {canAccessPlatform && (
@@ -120,14 +124,14 @@ export function AuthenticatedLayout({ children }) {
       <div className="app-main">
         <header className="app-topbar">
           <div className="topbar-context">
-            <p className="eyebrow">Current workspace</p>
+            <p className="eyebrow">
+              {selectedOrganization ? 'Current organization' : 'Platform'}
+            </p>
             <h1 className="topbar-title">
               {selectedOrganization?.organization.name ?? 'Platform'}
             </h1>
             {currentRoles.length > 0 && (
-              <span className="topbar-pill">
-                {currentRoles.map((role) => role.name).join(', ')}
-              </span>
+              <span className="topbar-pill">{currentRoleName}</span>
             )}
           </div>
 
@@ -137,7 +141,7 @@ export function AuthenticatedLayout({ children }) {
               onClick={toggleTheme}
               type="button"
             >
-              <span aria-hidden="true">{theme === 'dark' ? '☀' : '☾'}</span>
+              <span aria-hidden="true">Aa</span>
               {theme === 'dark' ? 'Light' : 'Dark'}
             </button>
 
@@ -148,9 +152,11 @@ export function AuthenticatedLayout({ children }) {
                 onClick={() => setIsProfileOpen((current) => !current)}
                 type="button"
               >
-                <span className="profile-avatar">{getInitials(user.email)}</span>
+                <span className="profile-avatar">
+                  {getInitialsFromUser(user)}
+                </span>
                 <span>
-                  <strong>{user.email}</strong>
+                  <strong>{displayName}</strong>
                   <small>{user.isVerified ? 'Verified' : 'Unverified'}</small>
                 </span>
               </button>
@@ -159,15 +165,16 @@ export function AuthenticatedLayout({ children }) {
                 <div className="profile-popover">
                   <div className="profile-popover__header">
                     <span className="profile-avatar profile-avatar--large">
-                      {getInitials(user.email)}
+                      {getInitialsFromUser(user)}
                     </span>
                     <div>
-                      <strong>{user.email}</strong>
+                      <strong>{displayName}</strong>
                       <p>
                         {user.isVerified
                           ? 'Verified account'
                           : 'Email not verified'}
                       </p>
+                      <small>{user.email}</small>
                     </div>
                   </div>
                   <Link

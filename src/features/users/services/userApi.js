@@ -39,23 +39,3 @@ export async function updateUser(id, values) {
   })
   return getResponseData(response).user
 }
-
-export async function getPlatformRoles() {
-  const response = await apiRequest('/users/platform-roles', {
-    cache: 'no-store',
-    requiresAuth: true,
-  })
-  return getResponseData(response).roles
-}
-
-export async function replacePlatformRoles(id, roleIds) {
-  const response = await csrfRequest(
-    `/users/${encodeURIComponent(id)}/platform-roles`,
-    {
-      body: { roleIds },
-      method: 'PATCH',
-      requiresAuth: true,
-    },
-  )
-  return getResponseData(response).user
-}

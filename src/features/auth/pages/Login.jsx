@@ -53,7 +53,7 @@ export function Login() {
           className="login-visual"
         >
           <div className="login-visual__copy">
-            <p className="eyebrow">Intelligent workspace</p>
+            <p className="eyebrow">Intelligent documents</p>
             <h2>Turn every document into a confident decision.</h2>
           </div>
           <img
@@ -62,20 +62,13 @@ export function Login() {
             src={loginDocumentArtwork}
           />
           <div className="login-visual__status">
-            <span aria-hidden="true">✓</span>
+            <span aria-hidden="true">OK</span>
             Secure document verification
           </div>
         </aside>
       }
-      description="Use your verified account to continue."
-      footer={
-        <>
-          New here?{' '}
-          <Link state={location.state} to="/register">
-            Create an account
-          </Link>
-        </>
-      }
+      description="Use your invited and verified account to continue."
+      footer={<>Access is invitation-only. Ask an administrator for an invite.</>}
       title="Welcome back"
     >
       {message && (
