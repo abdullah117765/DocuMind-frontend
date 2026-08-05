@@ -1,6 +1,5 @@
 import { AcceptInvite } from '../features/access-control/pages/AcceptInvite.jsx'
 import { Members } from '../features/access-control/pages/Members.jsx'
-import { MyAccess } from '../features/access-control/pages/MyAccess.jsx'
 import { PlatformOrganizations } from '../features/access-control/pages/PlatformOrganizations.jsx'
 import { Roles } from '../features/access-control/pages/Roles.jsx'
 import { DeviceSessions } from '../features/auth/pages/DeviceSessions.jsx'
@@ -61,15 +60,23 @@ export function AppRoutes() {
   if (pathname === '/forgot-password') return <ForgotPassword />
   if (pathname === '/verify-reset-code') return <VerifyResetCode />
   if (pathname === '/reset-password') return <ResetPassword />
+  if (pathname === '/account/access' || pathname === '/platform/audit-logs') {
+    return (
+      <Navigate
+        replace
+        state={location.state}
+        to={pathname === '/account/access' ? '/account/profile' : '/audit-logs'}
+      />
+    )
+  }
 
   const protectedPages = {
+    '/audit-logs': <AuditLogs />,
     '/dashboard': <Dashboard />,
-    '/account/access': <MyAccess />,
     '/account/profile': <Profile />,
     '/account/sessions': <DeviceSessions />,
     '/organization/members': <Members />,
     '/organization/roles': <Roles />,
-    '/platform/audit-logs': <AuditLogs />,
     '/platform/organizations': <PlatformOrganizations />,
     '/platform/users': <Users />,
   }

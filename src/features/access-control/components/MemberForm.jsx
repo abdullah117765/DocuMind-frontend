@@ -6,6 +6,25 @@ import {
   validateEmail,
 } from '../../auth/components/validation.js'
 
+const PERSON_NAME_PATTERN = /^[A-Za-z0-9]+(?: [A-Za-z0-9]+)*$/
+
+function normalizePersonName(value) {
+  return value.trim().replace(/\s+/g, ' ')
+}
+
+function validatePersonName(value) {
+  const name = normalizePersonName(value)
+
+  if (!name) return 'Name is required.'
+  if (name.length < 2) return 'Use at least 2 characters.'
+  if (name.length > 150) return 'Use no more than 150 characters.'
+  if (!PERSON_NAME_PATTERN.test(name)) {
+    return 'Use letters, numbers, and single spaces only.'
+  }
+
+  return ''
+}
+
 export function MemberForm({
   isSaving,
   member,
@@ -14,7 +33,9 @@ export function MemberForm({
   onSubmit,
   roles = [],
 }) {
+  const [name, setName] = useState(member?.user.name ?? '')
   const [email, setEmail] = useState(member?.user.email ?? '')
+  const [nameError, setNameError] = useState('')
   const [emailError, setEmailError] = useState('')
   const [roleError, setRoleError] = useState('')
   const [roleIds, setRoleIds] = useState(
@@ -23,22 +44,23 @@ export function MemberForm({
   const selectedRoleId = roleIds[0] ?? ''
   const maxReached = Boolean(selectedRoleId)
 
-  function toggleRole(roleId) {
+  function selectRole(roleId) {
     setRoleError('')
-    setRoleIds((currentRoleIds) =>
-      currentRoleIds[0] === roleId ? [] : [roleId],
-    )
+    setRoleIds([roleId])
   }
 
   function handleSubmit(event) {
     event.preventDefault()
     const normalizedEmail = normalizeEmail(email)
+    const normalizedName = normalizePersonName(name)
 
     if (!member && mode !== 'accept') {
+      const nextNameError = validatePersonName(normalizedName)
       const nextEmailError = validateEmail(normalizedEmail)
+      setNameError(nextNameError)
       setEmailError(nextEmailError)
 
-      if (nextEmailError) return
+      if (nextNameError || nextEmailError) return
     }
 
     if (roleIds.length !== 1) {
@@ -47,7 +69,9 @@ export function MemberForm({
     }
 
     void onSubmit({
-      ...(!member && mode !== 'accept' ? { email: normalizedEmail } : {}),
+      ...(!member && mode !== 'accept'
+        ? { email: normalizedEmail, name: normalizedName }
+        : {}),
       roleIds,
     })
   }
@@ -66,26 +90,39 @@ export function MemberForm({
           </strong>
         </div>
       ) : (
-        <Input
-          autoComplete="email"
-          disabled={isSaving}
-          error={emailError}
-          hint={
-            mode === 'invite'
-              ? 'They will receive a company invitation email with a one-time password.'
-              : 'The user must already have a verified account.'
-          }
-          label="Email"
-          maxLength="254"
-          onChange={(event) => {
-            setEmail(event.target.value)
-            setEmailError('')
-          }}
-          placeholder="employee@example.com"
-          required
-          type="email"
-          value={email}
-        />
+        <>
+          <Input
+            autoComplete="name"
+            disabled={isSaving}
+            error={nameError}
+            hint="Letters, numbers, and single spaces only."
+            label="Name"
+            maxLength="150"
+            onChange={(event) => {
+              setName(event.target.value)
+              setNameError('')
+            }}
+            placeholder="Ahmed Khan"
+            required
+            value={name}
+          />
+          <Input
+            autoComplete="email"
+            disabled={isSaving}
+            error={emailError}
+            hint="They will receive a company invitation email with their assigned role."
+            label="Email"
+            maxLength="254"
+            onChange={(event) => {
+              setEmail(event.target.value)
+              setEmailError('')
+            }}
+            placeholder="employee@example.com"
+            required
+            type="email"
+            value={email}
+          />
+        </>
       )}
       <fieldset className="role-options">
         <legend className="field__label">Organization role</legend>
@@ -100,15 +137,15 @@ export function MemberForm({
           {roles.length ? (
             roles.map((role) => {
               const isSelected = selectedRoleId === role.id
-              const isDisabled = isSaving || (!isSelected && maxReached)
 
               return (
                 <label className="role-option" key={role.id}>
                   <input
                     checked={isSelected}
-                    disabled={isDisabled}
-                    onChange={() => toggleRole(role.id)}
-                    type="checkbox"
+                    disabled={isSaving}
+                    name="organization-role"
+                    onChange={() => selectRole(role.id)}
+                    type="radio"
                   />
                   <span>
                     <strong>{role.name}</strong>

@@ -51,6 +51,11 @@ function OrganizationMembershipSummary({ memberships = [] }) {
 function validateCreateForm(form) {
   const errors = {}
   const email = normalizeEmail(form.email)
+  const normalizedName = form.name.trim().replace(/\s+/g, ' ')
+
+  if (!/^[A-Za-z0-9]+(?: [A-Za-z0-9]+)*$/.test(normalizedName)) {
+    errors.name = 'Use letters, numbers, and single spaces only.'
+  }
 
   if (!EMAIL_PATTERN.test(email)) {
     errors.email = 'Enter a valid email address.'
@@ -68,14 +73,14 @@ function CreateUserModal({ isOpen, isSaving, onClose, onSubmit }) {
   const [errors, setErrors] = useState({})
   const [form, setForm] = useState({
     email: '',
-    isVerified: true,
+    name: '',
     password: '',
   })
 
   useEffect(() => {
     if (isOpen) {
       setErrors({})
-      setForm({ email: '', isVerified: true, password: '' })
+      setForm({ email: '', name: '', password: '' })
     }
   }, [isOpen])
 
@@ -89,7 +94,7 @@ function CreateUserModal({ isOpen, isSaving, onClose, onSubmit }) {
 
     void onSubmit({
       email: normalizeEmail(form.email),
-      isVerified: form.isVerified,
+      name: form.name.trim().replace(/\s+/g, ' '),
       password: form.password,
     })
   }
@@ -97,6 +102,20 @@ function CreateUserModal({ isOpen, isSaving, onClose, onSubmit }) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Create platform user">
       <form className="form" onSubmit={handleSubmit}>
+        <Input
+          autoComplete="name"
+          disabled={isSaving}
+          error={errors.name}
+          hint="Letters, numbers, and single spaces only."
+          label="Name"
+          maxLength="150"
+          onChange={(event) =>
+            setForm((current) => ({ ...current, name: event.target.value }))
+          }
+          placeholder="Ahmed Khan"
+          required
+          value={form.name}
+        />
         <Input
           autoComplete="email"
           disabled={isSaving}
@@ -122,20 +141,6 @@ function CreateUserModal({ isOpen, isSaving, onClose, onSubmit }) {
           type="password"
           value={form.password}
         />
-        <label className="check-row">
-          <input
-            checked={form.isVerified}
-            disabled={isSaving}
-            onChange={(event) =>
-              setForm((current) => ({
-                ...current,
-                isVerified: event.target.checked,
-              }))
-            }
-            type="checkbox"
-          />
-          <span>Create as verified</span>
-        </label>
         <div className="form-actions">
           <Button disabled={isSaving} onClick={onClose} variant="secondary">
             Cancel
@@ -157,7 +162,6 @@ export function Users() {
   const [filters, setFilters] = useState({
     search: '',
     status: 'active',
-    verified: '',
   })
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -174,7 +178,6 @@ export function Users() {
         pageSize: 50,
         search: filters.search.trim(),
         status: filters.status,
-        verified: filters.verified,
       })
 
       setUsers(userData.users ?? [])
@@ -184,7 +187,7 @@ export function Users() {
     } finally {
       setIsLoading(false)
     }
-  }, [filters.search, filters.status, filters.verified])
+  }, [filters.search, filters.status])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -234,8 +237,8 @@ export function Users() {
           <p className="eyebrow">Platform administration</p>
           <h1>Users</h1>
           <p>
-            Search accounts, manage verification, and control active state
-            without exposing Super Admin role assignment.
+            Search accounts and control active state without exposing Super
+            Admin role assignment.
           </p>
         </div>
         <div className="inline-actions">
@@ -270,22 +273,6 @@ export function Users() {
             <option value="all">All</option>
           </select>
         </label>
-        <label className="field">
-          <span className="field__label">Verification</span>
-          <select
-            onChange={(event) =>
-              setFilters((current) => ({
-                ...current,
-                verified: event.target.value,
-              }))
-            }
-            value={filters.verified}
-          >
-            <option value="">Any</option>
-            <option value="true">Verified</option>
-            <option value="false">Unverified</option>
-          </select>
-        </label>
       </section>
 
       <section className="card">
@@ -313,7 +300,8 @@ export function Users() {
               return (
                 <article className="data-table__row" key={managedUser.id} role="row">
                   <span role="cell">
-                    <strong>{managedUser.email}</strong>
+                    <strong>{managedUser.name ?? managedUser.email}</strong>
+                    {managedUser.name && <small>{managedUser.email}</small>}
                     <small>Created {formatDate(managedUser.createdAt)}</small>
                   </span>
                   <span role="cell">
@@ -325,15 +313,6 @@ export function Users() {
                       }`}
                     >
                       {managedUser.isActive ? 'ACTIVE' : 'INACTIVE'}
-                    </span>
-                    <span
-                      className={`status-badge ${
-                        managedUser.isVerified
-                          ? 'status-badge--success'
-                          : 'status-badge--warning'
-                      }`}
-                    >
-                      {managedUser.isVerified ? 'VERIFIED' : 'UNVERIFIED'}
                     </span>
                   </span>
                   <span className="chip-list" role="cell">
@@ -351,17 +330,6 @@ export function Users() {
                     />
                   </span>
                   <span className="inline-actions" role="cell">
-                    <Button
-                      disabled={isSaving}
-                      onClick={() =>
-                        void handleUpdateUser(managedUser, {
-                          isVerified: !managedUser.isVerified,
-                        })
-                      }
-                      variant="secondary"
-                    >
-                      {managedUser.isVerified ? 'Unverify' : 'Verify'}
-                    </Button>
                     <Button
                       disabled={isSaving || isSelf}
                       onClick={() =>

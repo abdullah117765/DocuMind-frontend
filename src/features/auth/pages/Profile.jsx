@@ -40,15 +40,6 @@ export function Profile() {
             <span className="card__label">Signed in as</span>
             <h2>{displayName}</h2>
             <p className="muted-copy">{user.email}</p>
-            <span
-              className={`status-badge ${
-                user.isVerified
-                  ? 'status-badge--success'
-                  : 'status-badge--warning'
-              }`}
-            >
-              {user.isVerified ? 'Verified account' : 'Email not verified'}
-            </span>
           </div>
         </article>
 

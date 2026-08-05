@@ -17,16 +17,15 @@ export function Dashboard() {
         <div>
           <p className="eyebrow">Account overview</p>
           <h1>Welcome back, {displayName}</h1>
-          <p>Your verified account is ready to use.</p>
+          <p>Your account is ready to use.</p>
         </div>
-        <span className="status-badge status-badge--success">Verified</span>
       </header>
 
       <section className="overview-grid" aria-label="Account details">
         <article className="card">
           <span className="card__label">Signed in as</span>
           <strong className="card__value">{user.email}</strong>
-          <p>Your email has been confirmed.</p>
+          <p>Your current session is active.</p>
         </article>
         <article className="card">
           <span className="card__label">Current session</span>
@@ -52,9 +51,9 @@ export function Dashboard() {
         </div>
         <Link
           className="button button--secondary button--link"
-          to="/account/access"
+          to="/account/profile"
         >
-          View my access
+          View profile
         </Link>
       </section>
 

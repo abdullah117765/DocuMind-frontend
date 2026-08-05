@@ -47,17 +47,24 @@ export function NotificationProvider({ children }) {
   const notify = useCallback((message, options = {}) => {
     const id = `notification-${Date.now()}-${nextNotificationId}`
     nextNotificationId += 1
+    const nextNotification = {
+      durationMs: options.durationMs ?? 4200,
+      id,
+      message,
+      title: options.title ?? '',
+      tone: options.tone ?? 'info',
+    }
 
-    setNotifications((current) => [
-      ...current,
-      {
-        durationMs: options.durationMs ?? 5000,
-        id,
-        message,
-        title: options.title ?? '',
-        tone: options.tone ?? 'info',
-      },
-    ])
+    setNotifications((current) => {
+      const withoutDuplicate = current.filter(
+        (notification) =>
+          notification.message !== nextNotification.message ||
+          notification.tone !== nextNotification.tone ||
+          notification.title !== nextNotification.title,
+      )
+
+      return [...withoutDuplicate, nextNotification].slice(-3)
+    })
 
     return id
   }, [])

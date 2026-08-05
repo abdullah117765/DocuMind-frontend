@@ -3,7 +3,6 @@ import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
-import { Link } from '../../../routes/RouterElements.jsx'
 import { useNotifications } from '../../../shared/useNotifications.js'
 import { useAccessControl } from '../hooks/useAccessControl.js'
 import {
@@ -61,13 +60,6 @@ function OrganizationSetupActions({ organization, onSelect }) {
       <Button onClick={() => onSelect(organization.id)} variant="secondary">
         Select organization
       </Button>
-      <Link
-        className="button button--secondary"
-        onClick={() => onSelect(organization.id)}
-        to="/organization/members"
-      >
-        Assign admin
-      </Link>
     </div>
   )
 }
@@ -225,8 +217,8 @@ export function PlatformOrganizations() {
             <span className="card__label">Step 1</span>
             <h2>Create organization</h2>
             <p>
-              Super Admin stays outside tenant membership. After creation, use
-              Members to assign the first Organization Admin.
+              Super Admin stays outside tenant membership. Create the tenant,
+              then use the standard member invitation flow for onboarding.
             </p>
           </div>
           <Input
@@ -263,8 +255,8 @@ export function PlatformOrganizations() {
             <strong>Next steps after create</strong>
             <ol>
               <li>Select the new organization.</li>
-              <li>Add or invite the first Organization Admin.</li>
-              <li>Invite the rest of the team with one role per person.</li>
+              <li>Open Members from the organization navigation.</li>
+              <li>Invite users with a name, email, and exactly one role.</li>
             </ol>
           </div>
         </form>

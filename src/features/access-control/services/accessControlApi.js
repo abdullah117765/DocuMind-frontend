@@ -228,19 +228,6 @@ export async function getMembers(organizationId) {
   return getResponseData(response).members
 }
 
-export async function addMember(organizationId, member) {
-  const response = await csrfRequest(
-    organizationPath(organizationId, '/members'),
-    {
-      body: member,
-      method: 'POST',
-      requiresAuth: true,
-    },
-  )
-
-  return getResponseData(response).member
-}
-
 export async function replaceMemberRoles(
   organizationId,
   membershipId,

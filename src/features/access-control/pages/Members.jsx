@@ -9,7 +9,6 @@ import { MemberForm } from '../components/MemberForm.jsx'
 import { OrganizationPermissionBoundary } from '../components/OrganizationPermissionBoundary.jsx'
 import { useAccessControl } from '../hooks/useAccessControl.js'
 import {
-  addMember,
   getOrganizationInvites,
   getMembers,
   getRoles,
@@ -39,7 +38,6 @@ function MembersContent() {
   const organizationId = selectedOrganization.organization.id
   const [actionError, setActionError] = useState(null)
   const [editingMember, setEditingMember] = useState(null)
-  const [isAddOpen, setIsAddOpen] = useState(false)
   const [isInviteOpen, setIsInviteOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -73,7 +71,6 @@ function MembersContent() {
 
   useEffect(() => {
     setEditingMember(null)
-    setIsAddOpen(false)
     setIsInviteOpen(false)
     setInviteToRevoke(null)
     setMemberToRemove(null)
@@ -88,22 +85,6 @@ function MembersContent() {
     await refreshAccess().catch(() => {})
   }
 
-  async function handleAddMember(values) {
-    setActionError(null)
-    setIsSaving(true)
-
-    try {
-      await addMember(organizationId, values)
-      setIsAddOpen(false)
-      await completeMutation(`${values.email} was added to the organization.`)
-    } catch (error) {
-      setActionError(error)
-      notifications.error(error.message)
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
   async function handleInviteMember(values) {
     setActionError(null)
     setIsSaving(true)
@@ -111,7 +92,7 @@ function MembersContent() {
     try {
       await inviteOrganizationMember(organizationId, values)
       setIsInviteOpen(false)
-      await completeMutation(`Invitation sent to ${values.email}.`)
+      await completeMutation(`Invitation sent to ${values.name}.`)
     } catch (error) {
       setActionError(error)
       if (error?.details?.reason === 'INVITE_EMAIL_DELIVERY_FAILED') {
@@ -251,15 +232,6 @@ function MembersContent() {
           >
             Invite member
           </Button>
-          <Button
-            onClick={() => {
-              setActionError(null)
-              setIsAddOpen(true)
-            }}
-            variant="secondary"
-          >
-            Add existing user
-          </Button>
         </div>
       </header>
 
@@ -291,11 +263,14 @@ function MembersContent() {
               <article className="member-card" key={member.id}>
                 <div className="member-card__identity">
                   <span aria-hidden="true" className="member-avatar">
-                    {member.user.email.slice(0, 1).toUpperCase()}
+                    {(member.user.name ?? member.user.email).slice(0, 1).toUpperCase()}
                   </span>
                   <div>
-                    <h2>{member.user.email}</h2>
+                    <h2>{member.user.name ?? member.user.email}</h2>
                     <div className="member-card__meta">
+                      {member.user.name && (
+                        <span className="muted-copy">{member.user.email}</span>
+                      )}
                       <span
                         className={`status-badge ${
                           member.status === 'ACTIVE'
@@ -305,11 +280,8 @@ function MembersContent() {
                       >
                         {member.status}
                       </span>
-                      {member.user.isVerified && (
-                        <span className="verified-label">Verified account</span>
-                      )}
                       {isCurrentUser && (
-                        <span className="verified-label">This is you</span>
+                        <span className="member-label">This is you</span>
                       )}
                     </div>
                   </div>
@@ -394,7 +366,10 @@ function MembersContent() {
             {invites.map((invite) => (
               <article className="invite-card" key={invite.id}>
                 <div>
-                  <h3>{invite.email}</h3>
+                  <h3>{invite.name ?? invite.email}</h3>
+                  {invite.name && (
+                    <p className="muted-copy">{invite.email}</p>
+                  )}
                   <p className="muted-copy">
                     Expires {formatDate(invite.expiresAt)}
                   </p>
@@ -462,23 +437,6 @@ function MembersContent() {
           </section>
         )}
       </section>
-
-      <Modal
-        isOpen={isAddOpen}
-        onClose={() => !isSaving && setIsAddOpen(false)}
-        title="Add existing user"
-      >
-        {actionError && <Alert>{actionError.message}</Alert>}
-        {isAddOpen && (
-          <MemberForm
-            isSaving={isSaving}
-            key="new-member"
-            onCancel={() => setIsAddOpen(false)}
-            onSubmit={handleAddMember}
-            roles={roles}
-          />
-        )}
-      </Modal>
 
       <Modal
         isOpen={Boolean(editingMember)}

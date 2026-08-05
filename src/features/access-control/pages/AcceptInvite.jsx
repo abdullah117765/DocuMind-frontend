@@ -93,7 +93,7 @@ export function AcceptInvite() {
     try {
       const result = await acceptOrganizationInvite(token)
 
-      navigate('/account/access', {
+      navigate('/dashboard', {
         replace: true,
         state: { message: result.message },
       })
@@ -188,7 +188,14 @@ export function AcceptInvite() {
       state: inviteRouteState,
     },
   }
+  const canUseInvite = preview?.status === 'PENDING'
+  const terminalInviteMessage = {
+    ACCEPTED: 'This invitation has already been accepted. Sign in with the invited account to continue.',
+    EXPIRED: 'This invitation has expired. Ask an organization administrator to resend it.',
+    REVOKED: 'This invitation has been revoked. Ask an organization administrator for a new invitation.',
+  }[preview?.status] ?? ''
   const isWrongAccount = Boolean(
+    canUseInvite &&
     isAuthenticated &&
       invitedEmail &&
       signedInEmail &&
@@ -197,13 +204,10 @@ export function AcceptInvite() {
   const isPlatformAdminBlocked =
     error?.details?.reason ===
     'PLATFORM_ADMIN_CANNOT_ACCEPT_ORGANIZATION_INVITE'
-  const canUseInvite = preview?.status === 'PENDING'
   const footer = isAuthenticated ? (
-    <Link to="/account/access">Go to my access</Link>
+    <Link to="/dashboard">Go to dashboard</Link>
   ) : (
-    <Link state={loginRedirectState} to="/login">
-      Already activated? Sign in
-    </Link>
+    <Link state={loginRedirectState} to="/login">Sign in</Link>
   )
 
   return (
@@ -228,6 +232,7 @@ export function AcceptInvite() {
           </div>
           <div>
             <span className="card__label">Invited email</span>
+            {preview.name && <h2>{preview.name}</h2>}
             <strong>{preview.email}</strong>
           </div>
           {isAuthenticated && (
@@ -251,7 +256,21 @@ export function AcceptInvite() {
           {error && !isWrongAccount && !isPlatformAdminBlocked && (
             <Alert>{error.message}</Alert>
           )}
-          {isAuthenticated ? (
+          {!canUseInvite ? (
+            <div className="invite-account-actions">
+              <Alert tone="info" title="No action needed here">
+                {terminalInviteMessage ||
+                  'This invitation is not available. Ask an administrator for help.'}
+              </Alert>
+              <Link
+                className="button button--primary"
+                state={loginRedirectState}
+                to={isAuthenticated ? '/dashboard' : '/login'}
+              >
+                {isAuthenticated ? 'Go to dashboard' : 'Go to sign in'}
+              </Link>
+            </div>
+          ) : isAuthenticated ? (
             isWrongAccount ? (
               <div className="invite-account-actions">
                 <Button
@@ -260,7 +279,7 @@ export function AcceptInvite() {
                 >
                   {isAccepting ? 'Signing out...' : 'Sign out and continue'}
                 </Button>
-                <Link className="button button--secondary" to="/account/access">
+                <Link className="button button--secondary" to="/dashboard">
                   Stay signed in
                 </Link>
               </div>

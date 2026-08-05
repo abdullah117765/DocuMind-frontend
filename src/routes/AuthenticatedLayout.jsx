@@ -35,6 +35,7 @@ export function AuthenticatedLayout({ children }) {
   const displayName = getDisplayName(user)
   const canManageMembers = hasPermission('members.manage')
   const canManageRoles = isSuperAdmin
+  const canViewOrganizationAuditLogs = canManageMembers
   const canAccessPlatformOrganizations = hasPlatformPermission(
     'platform.organizations.manage',
   )
@@ -74,19 +75,9 @@ export function AuthenticatedLayout({ children }) {
           </NavLink>
         </div>
 
-        {canSwitchOrganizations ? (
-          <OrganizationSwitcher />
-        ) : selectedOrganization ? (
-          <div className="organization-switcher organization-switcher--static">
-            <span>Organization</span>
-            <strong>{selectedOrganization.organization.name}</strong>
-          </div>
-        ) : null}
-
         <nav aria-label="Primary navigation" className="side-nav">
           <span className="side-nav__label">Main</span>
           <NavLink to="/dashboard">Overview</NavLink>
-          <NavLink to="/account/access">My access</NavLink>
 
           {(canManageMembers || canManageRoles) && (
             <>
@@ -96,6 +87,9 @@ export function AuthenticatedLayout({ children }) {
               )}
               {canManageRoles && (
                 <NavLink to="/organization/roles">Roles</NavLink>
+              )}
+              {canViewOrganizationAuditLogs && !canAccessAuditLogs && (
+                <NavLink to="/audit-logs">Audit logs</NavLink>
               )}
             </>
           )}
@@ -110,7 +104,7 @@ export function AuthenticatedLayout({ children }) {
                 <NavLink to="/platform/users">Users</NavLink>
               )}
               {canAccessAuditLogs && (
-                <NavLink to="/platform/audit-logs">Audit logs</NavLink>
+                <NavLink to="/audit-logs">Audit logs</NavLink>
               )}
             </>
           )}
@@ -136,6 +130,7 @@ export function AuthenticatedLayout({ children }) {
           </div>
 
           <div className="topbar-actions">
+            {canSwitchOrganizations && <OrganizationSwitcher />}
             <button
               className="theme-toggle"
               onClick={toggleTheme}
@@ -157,7 +152,7 @@ export function AuthenticatedLayout({ children }) {
                 </span>
                 <span>
                   <strong>{displayName}</strong>
-                  <small>{user.isVerified ? 'Verified' : 'Unverified'}</small>
+                  <small>{user.email}</small>
                 </span>
               </button>
 
@@ -169,11 +164,6 @@ export function AuthenticatedLayout({ children }) {
                     </span>
                     <div>
                       <strong>{displayName}</strong>
-                      <p>
-                        {user.isVerified
-                          ? 'Verified account'
-                          : 'Email not verified'}
-                      </p>
                       <small>{user.email}</small>
                     </div>
                   </div>

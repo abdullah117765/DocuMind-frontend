@@ -67,7 +67,7 @@ export function Login() {
           </div>
         </aside>
       }
-      description="Use your invited and verified account to continue."
+      description="Use your invited account to continue."
       footer={<>Access is invitation-only. Ask an administrator for an invite.</>}
       title="Welcome back"
     >
