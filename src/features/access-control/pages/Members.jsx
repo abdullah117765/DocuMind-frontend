@@ -31,6 +31,10 @@ function getMemberRole(member) {
   return member.roles?.[0] ?? null
 }
 
+function getRoleDisplayName(role) {
+  return role?.name ?? 'this role'
+}
+
 function MembersContent() {
   const { refreshAccess, selectedOrganization } = useAccessControl()
   const { user } = useAuth()
@@ -53,15 +57,39 @@ function MembersContent() {
     setIsLoading(true)
 
     try {
-      const [nextMembers, nextRoles, nextInvites] = await Promise.all([
+      const [membersResult, rolesResult, invitesResult] = await Promise.allSettled([
         getMembers(organizationId),
         getRoles(organizationId),
         getOrganizationInvites(organizationId),
       ])
 
-      setMembers(nextMembers)
-      setRoles(nextRoles)
-      setInvites(nextInvites)
+      if (membersResult.status === 'rejected') {
+        throw membersResult.reason
+      }
+
+      setMembers(membersResult.value)
+
+      const softErrors = []
+
+      if (rolesResult.status === 'fulfilled') {
+        setRoles(rolesResult.value)
+      } else {
+        setRoles([])
+        softErrors.push(
+          'Roles could not be loaded, so invitations and role changes are disabled.',
+        )
+      }
+
+      if (invitesResult.status === 'fulfilled') {
+        setInvites(invitesResult.value)
+      } else {
+        setInvites([])
+        softErrors.push('Invitations could not be loaded.')
+      }
+
+      if (softErrors.length > 0) {
+        setActionError(new Error(softErrors.join(' ')))
+      }
     } catch (error) {
       setActionError(error)
     } finally {
@@ -203,6 +231,8 @@ function MembersContent() {
   const activeMembers = members.filter((member) => member.status === 'ACTIVE')
   const pendingInvites = invites.filter((invite) => invite.status === 'PENDING')
   const failedInvites = invites.filter((invite) => invite.lastSendFailureAt)
+  const assignableRoles = roles.filter((role) => role.canAssign !== false)
+  const hasAssignableRoles = assignableRoles.length > 0
 
   if (isLoading) {
     return (
@@ -225,10 +255,16 @@ function MembersContent() {
         </div>
         <div className="inline-actions">
           <Button
+            disabled={!hasAssignableRoles}
             onClick={() => {
               setActionError(null)
               setIsInviteOpen(true)
             }}
+            title={
+              hasAssignableRoles
+                ? undefined
+                : 'No assignable roles are available. Run the backend seed or ask Super Admin to configure roles.'
+            }
           >
             Invite member
           </Button>
@@ -258,6 +294,16 @@ function MembersContent() {
           members.map((member) => {
             const isCurrentUser = member.user.id === user.id
             const role = getMemberRole(member)
+            const availableCurrentRole = role
+              ? roles.find((availableRole) => availableRole.id === role.id)
+              : null
+            const canManageTargetRole =
+              !role ||
+              Boolean(
+                availableCurrentRole &&
+                  availableCurrentRole.canAssign !== false,
+              )
+            const protectedRoleMessage = `Only Super Admin can manage members with ${getRoleDisplayName(role)}.`
 
             return (
               <article className="member-card" key={member.id}>
@@ -298,7 +344,12 @@ function MembersContent() {
 
                 <div className="member-card__actions">
                   <Button
-                    disabled={isSaving || isCurrentUser}
+                    disabled={
+                      isSaving ||
+                      isCurrentUser ||
+                      !hasAssignableRoles ||
+                      !canManageTargetRole
+                    }
                     onClick={() => {
                       setActionError(null)
                       setEditingMember(member)
@@ -306,6 +357,10 @@ function MembersContent() {
                     title={
                       isCurrentUser
                         ? 'You cannot change your own organization role.'
+                        : !canManageTargetRole
+                          ? protectedRoleMessage
+                          : !hasAssignableRoles
+                            ? 'No assignable roles are available.'
                         : undefined
                     }
                     variant="secondary"
@@ -313,11 +368,13 @@ function MembersContent() {
                     Edit role
                   </Button>
                   <Button
-                    disabled={isSaving || isCurrentUser}
+                    disabled={isSaving || isCurrentUser || !canManageTargetRole}
                     onClick={() => void handleStatusChange(member)}
                     title={
                       isCurrentUser
                         ? 'You cannot suspend or reactivate your own membership.'
+                        : !canManageTargetRole
+                          ? protectedRoleMessage
                         : undefined
                     }
                     variant="secondary"
@@ -325,7 +382,7 @@ function MembersContent() {
                     {member.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
                   </Button>
                   <Button
-                    disabled={isSaving || isCurrentUser}
+                    disabled={isSaving || isCurrentUser || !canManageTargetRole}
                     onClick={() => {
                       setActionError(null)
                       setMemberToRemove(member)
@@ -333,6 +390,8 @@ function MembersContent() {
                     title={
                       isCurrentUser
                         ? 'You cannot remove your own membership.'
+                        : !canManageTargetRole
+                          ? protectedRoleMessage
                         : undefined
                     }
                     variant="danger"
@@ -451,7 +510,7 @@ function MembersContent() {
             member={editingMember}
             onCancel={() => setEditingMember(null)}
             onSubmit={handleUpdateRole}
-            roles={roles}
+            roles={assignableRoles}
           />
         )}
       </Modal>
@@ -469,7 +528,7 @@ function MembersContent() {
             mode="invite"
             onCancel={() => setIsInviteOpen(false)}
             onSubmit={handleInviteMember}
-            roles={roles}
+            roles={assignableRoles}
           />
         )}
       </Modal>

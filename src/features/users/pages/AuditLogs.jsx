@@ -156,7 +156,10 @@ export function AuditLogs() {
                           <small>{actor.email}</small>
                         </>
                       ) : (
-                        'System'
+                        <>
+                          <strong>System</strong>
+                          <small>Automated event</small>
+                        </>
                       )}
                     </span>
                     <code role="cell">{log.action}</code>

@@ -43,6 +43,7 @@ export function MemberForm({
   )
   const selectedRoleId = roleIds[0] ?? ''
   const maxReached = Boolean(selectedRoleId)
+  const hasAssignableRoles = roles.length > 0
 
   function selectRole(roleId) {
     setRoleError('')
@@ -61,6 +62,11 @@ export function MemberForm({
       setEmailError(nextEmailError)
 
       if (nextNameError || nextEmailError) return
+    }
+
+    if (!hasAssignableRoles) {
+      setRoleError('No assignable roles are available for this organization.')
+      return
     }
 
     if (roleIds.length !== 1) {
@@ -155,7 +161,10 @@ export function MemberForm({
               )
             })
           ) : (
-            <p className="muted-copy">No assignable roles were returned.</p>
+            <p className="muted-copy">
+              No assignable roles are available. Ask the Super Admin to check
+              role setup or run the backend seed.
+            </p>
           )}
         </div>
       </fieldset>
@@ -163,7 +172,7 @@ export function MemberForm({
         <Button disabled={isSaving} onClick={onCancel} variant="secondary">
           Cancel
         </Button>
-        <Button disabled={isSaving} type="submit">
+        <Button disabled={isSaving || !hasAssignableRoles} type="submit">
           {isSaving
             ? 'Saving...'
             : member
