@@ -93,7 +93,7 @@ export function VerifyEmail() {
         </>
       )}
       {result.status === 'loading' && (
-        <Button disabled>Verifying email…</Button>
+        <Button disabled>Verifying email...</Button>
       )}
       {result.status === 'success' && (
         <Alert tone="success">{result.message}</Alert>

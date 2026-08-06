@@ -3,6 +3,7 @@ import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
+import { RefreshIconButton } from '../../../shared/components/RefreshIconButton.jsx'
 import { useNotifications } from '../../../shared/useNotifications.js'
 import { useAccessControl } from '../hooks/useAccessControl.js'
 import {
@@ -191,13 +192,11 @@ export function PlatformOrganizations() {
             controlled place.
           </p>
         </div>
-        <Button
+        <RefreshIconButton
           disabled={isLoading}
+          label="Refresh organizations"
           onClick={() => void loadOrganizations()}
-          variant="secondary"
-        >
-          Refresh
-        </Button>
+        />
       </header>
 
       {notice && (

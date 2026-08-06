@@ -1,7 +1,6 @@
 import { Link } from '../../../routes/RouterElements.jsx'
 import {
   getDisplayName,
-  getInitialsFromUser,
   getPrimaryRoleName,
   isSuperAdminAccess,
 } from '../../../shared/utils/accessDisplay.js'
@@ -17,14 +16,23 @@ export function Profile() {
   } = useAccessControl()
   const displayName = getDisplayName(user)
   const isSuperAdmin = isSuperAdminAccess(user, access)
+  const accountScopeLabel = isSuperAdmin ? 'Account scope' : 'Organization'
+  const accountScopeTitle = isSuperAdmin
+    ? 'Platform only'
+    : selectedOrganization?.organization.name ?? 'No organization'
+  const accountScopeDescription = isSuperAdmin
+    ? 'Super Admin can oversee organizations without becoming a tenant member.'
+    : selectedOrganization
+      ? getPrimaryRoleName(effectiveRoles)
+      : 'You are not assigned to an organization yet.'
 
   return (
-    <main className="page page--wide">
+    <main className="page page--wide page--account-profile">
       <header className="page-header">
         <div>
           <p className="eyebrow">Account center</p>
           <h1>Profile</h1>
-          <p>Review your identity, role, organization, and current session.</p>
+          <p>Review identity, role, and current session for {displayName}.</p>
         </div>
         <Link className="button button--secondary" to="/account/sessions">
           Manage devices
@@ -32,17 +40,6 @@ export function Profile() {
       </header>
 
       <section className="profile-layout">
-        <article className="card profile-summary-card">
-          <span className="profile-avatar profile-avatar--xl">
-            {getInitialsFromUser(user)}
-          </span>
-          <div>
-            <span className="card__label">Signed in as</span>
-            <h2>{displayName}</h2>
-            <p className="muted-copy">{user.email}</p>
-          </div>
-        </article>
-
         <article className="card">
           <span className="card__label">Platform role</span>
           <h2>{isSuperAdmin ? 'Super Admin' : 'No platform role'}</h2>
@@ -54,13 +51,9 @@ export function Profile() {
         </article>
 
         <article className="card">
-          <span className="card__label">Organization</span>
-          <h2>{selectedOrganization?.organization.name ?? 'No organization'}</h2>
-          <p className="muted-copy">
-            {selectedOrganization
-              ? getPrimaryRoleName(effectiveRoles)
-              : 'You are not assigned to an organization yet.'}
-          </p>
+          <span className="card__label">{accountScopeLabel}</span>
+          <h2>{accountScopeTitle}</h2>
+          <p className="muted-copy">{accountScopeDescription}</p>
         </article>
 
         <article className="card">

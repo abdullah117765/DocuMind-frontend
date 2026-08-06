@@ -36,10 +36,11 @@ function getRoleDisplayName(role) {
 }
 
 function MembersContent() {
-  const { refreshAccess, selectedOrganization } = useAccessControl()
+  const { hasPermission, refreshAccess, selectedOrganization } = useAccessControl()
   const { user } = useAuth()
   const notifications = useNotifications()
   const organizationId = selectedOrganization.organization.id
+  const canManageMembers = hasPermission('members.manage')
   const [actionError, setActionError] = useState(null)
   const [editingMember, setEditingMember] = useState(null)
   const [isInviteOpen, setIsInviteOpen] = useState(false)
@@ -59,8 +60,10 @@ function MembersContent() {
     try {
       const [membersResult, rolesResult, invitesResult] = await Promise.allSettled([
         getMembers(organizationId),
-        getRoles(organizationId),
-        getOrganizationInvites(organizationId),
+        canManageMembers ? getRoles(organizationId) : Promise.resolve([]),
+        canManageMembers
+          ? getOrganizationInvites(organizationId)
+          : Promise.resolve([]),
       ])
 
       if (membersResult.status === 'rejected') {
@@ -95,7 +98,7 @@ function MembersContent() {
     } finally {
       setIsLoading(false)
     }
-  }, [organizationId])
+  }, [canManageMembers, organizationId])
 
   useEffect(() => {
     setEditingMember(null)
@@ -243,32 +246,37 @@ function MembersContent() {
   }
 
   return (
-    <main className="page page--wide">
+    <main className="page page--wide page--members">
       <header className="page-header">
         <div>
-          <p className="eyebrow">User management</p>
-          <h1>Organization members</h1>
+          <p className="eyebrow">
+            {canManageMembers ? 'User management' : 'Team visibility'}
+          </p>
+          <h1>{canManageMembers ? 'Organization members' : 'My team'}</h1>
           <p>
-            Invite members, assign exactly one role, and control access for{' '}
-            {selectedOrganization.organization.name}.
+            {canManageMembers
+              ? `Invite members, assign exactly one role, and control access for ${selectedOrganization.organization.name}.`
+              : `Review employees assigned under your role in ${selectedOrganization.organization.name}. Member changes stay with an Organization Admin.`}
           </p>
         </div>
-        <div className="inline-actions">
-          <Button
-            disabled={!hasAssignableRoles}
-            onClick={() => {
-              setActionError(null)
-              setIsInviteOpen(true)
-            }}
-            title={
-              hasAssignableRoles
-                ? undefined
-                : 'No assignable roles are available. Run the backend seed or ask Super Admin to configure roles.'
-            }
-          >
-            Invite member
-          </Button>
-        </div>
+        {canManageMembers && (
+          <div className="inline-actions">
+            <Button
+              disabled={!hasAssignableRoles}
+              onClick={() => {
+                setActionError(null)
+                setIsInviteOpen(true)
+              }}
+              title={
+                hasAssignableRoles
+                  ? undefined
+                  : 'No assignable roles are available. Run the backend seed or ask Super Admin to configure roles.'
+              }
+            >
+              Invite member
+            </Button>
+          </div>
+        )}
       </header>
 
       {notice && <Alert tone="success">{notice}</Alert>}
@@ -276,17 +284,21 @@ function MembersContent() {
 
       <section className="metric-grid" aria-label="Member management summary">
         <article>
-          <span>Active members</span>
+          <span>{canManageMembers ? 'Active members' : 'Visible employees'}</span>
           <strong>{activeMembers.length}</strong>
         </article>
-        <article>
-          <span>Pending invites</span>
-          <strong>{pendingInvites.length}</strong>
-        </article>
-        <article>
-          <span>Email issues</span>
-          <strong>{failedInvites.length}</strong>
-        </article>
+        {canManageMembers && (
+          <>
+            <article>
+              <span>Pending invites</span>
+              <strong>{pendingInvites.length}</strong>
+            </article>
+            <article>
+              <span>Email issues</span>
+              <strong>{failedInvites.length}</strong>
+            </article>
+          </>
+        )}
       </section>
 
       <section className="member-list" aria-label="Organization members">
@@ -342,63 +354,71 @@ function MembersContent() {
                   )}
                 </div>
 
-                <div className="member-card__actions">
-                  <Button
-                    disabled={
-                      isSaving ||
-                      isCurrentUser ||
-                      !hasAssignableRoles ||
-                      !canManageTargetRole
-                    }
-                    onClick={() => {
-                      setActionError(null)
-                      setEditingMember(member)
-                    }}
-                    title={
-                      isCurrentUser
-                        ? 'You cannot change your own organization role.'
-                        : !canManageTargetRole
-                          ? protectedRoleMessage
-                          : !hasAssignableRoles
-                            ? 'No assignable roles are available.'
-                        : undefined
-                    }
-                    variant="secondary"
-                  >
-                    Edit role
-                  </Button>
-                  <Button
-                    disabled={isSaving || isCurrentUser || !canManageTargetRole}
-                    onClick={() => void handleStatusChange(member)}
-                    title={
-                      isCurrentUser
-                        ? 'You cannot suspend or reactivate your own membership.'
-                        : !canManageTargetRole
-                          ? protectedRoleMessage
-                        : undefined
-                    }
-                    variant="secondary"
-                  >
-                    {member.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
-                  </Button>
-                  <Button
-                    disabled={isSaving || isCurrentUser || !canManageTargetRole}
-                    onClick={() => {
-                      setActionError(null)
-                      setMemberToRemove(member)
-                    }}
-                    title={
-                      isCurrentUser
-                        ? 'You cannot remove your own membership.'
-                        : !canManageTargetRole
-                          ? protectedRoleMessage
-                        : undefined
-                    }
-                    variant="danger"
-                  >
-                    Remove
-                  </Button>
-                </div>
+                {canManageMembers ? (
+                  <div className="member-card__actions">
+                    <Button
+                      disabled={
+                        isSaving ||
+                        isCurrentUser ||
+                        !hasAssignableRoles ||
+                        !canManageTargetRole
+                      }
+                      onClick={() => {
+                        setActionError(null)
+                        setEditingMember(member)
+                      }}
+                      title={
+                        isCurrentUser
+                          ? 'You cannot change your own organization role.'
+                          : !canManageTargetRole
+                            ? protectedRoleMessage
+                            : !hasAssignableRoles
+                              ? 'No assignable roles are available.'
+                          : undefined
+                      }
+                      variant="secondary"
+                    >
+                      Edit role
+                    </Button>
+                    <Button
+                      disabled={isSaving || isCurrentUser || !canManageTargetRole}
+                      onClick={() => void handleStatusChange(member)}
+                      title={
+                        isCurrentUser
+                          ? 'You cannot suspend or reactivate your own membership.'
+                          : !canManageTargetRole
+                            ? protectedRoleMessage
+                          : undefined
+                      }
+                      variant="secondary"
+                    >
+                      {member.status === 'ACTIVE' ? 'Suspend' : 'Reactivate'}
+                    </Button>
+                    <Button
+                      disabled={isSaving || isCurrentUser || !canManageTargetRole}
+                      onClick={() => {
+                        setActionError(null)
+                        setMemberToRemove(member)
+                      }}
+                      title={
+                        isCurrentUser
+                          ? 'You cannot remove your own membership.'
+                          : !canManageTargetRole
+                            ? protectedRoleMessage
+                          : undefined
+                      }
+                      variant="danger"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="member-card__actions">
+                    <span className="read-only-note">
+                      Read-only team access
+                    </span>
+                  </div>
+                )}
               </article>
             )
           })
@@ -406,12 +426,17 @@ function MembersContent() {
           <section className="empty-state">
             <div>
               <h2>No members found</h2>
-              <p>Invite the first organization member to begin onboarding.</p>
+              <p>
+                {canManageMembers
+                  ? 'Invite the first organization member to begin onboarding.'
+                  : 'No employee members are visible to your role yet.'}
+              </p>
             </div>
           </section>
         )}
       </section>
 
+      {canManageMembers && (
       <section className="section-block">
         <div className="section-heading">
           <div>
@@ -458,12 +483,12 @@ function MembersContent() {
                   )}
                 </div>
                 {invite.lastSendFailureAt && (
-                  <Alert tone="warning" title="Email delivery failed">
-                    Last failed {formatDate(invite.lastSendFailureAt)}
+                  <p className="invite-card__warning">
+                    Email failed {formatDate(invite.lastSendFailureAt)}
                     {invite.lastSendFailureReason
                       ? ` - ${invite.lastSendFailureReason}`
-                      : '. Fix SMTP settings, then resend or revoke this invite.'}
-                  </Alert>
+                      : '. Check SMTP, then resend or revoke.'}
+                  </p>
                 )}
                 <div className="member-card__actions">
                   <Button
@@ -496,6 +521,7 @@ function MembersContent() {
           </section>
         )}
       </section>
+      )}
 
       <Modal
         isOpen={Boolean(editingMember)}
@@ -594,7 +620,9 @@ function MembersContent() {
 
 export function Members() {
   return (
-    <OrganizationPermissionBoundary permission="members.manage">
+    <OrganizationPermissionBoundary
+      permissions={['members.manage', 'analytics.view']}
+    >
       <MembersContent />
     </OrganizationPermissionBoundary>
   )

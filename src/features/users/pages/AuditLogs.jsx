@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert } from '../../../shared/components/Alert.jsx'
-import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
+import { RefreshIconButton } from '../../../shared/components/RefreshIconButton.jsx'
 import { isSuperAdminAccess } from '../../../shared/utils/accessDisplay.js'
 import { useAccessControl } from '../../access-control/hooks/useAccessControl.js'
 import { useAuth } from '../../auth/hooks/useAuth.js'
@@ -25,23 +25,53 @@ function getActor(log) {
   return log.actor ?? log.metadata?.actor ?? null
 }
 
+const LOG_DATE_RANGE_DAYS = {
+  '24h': 1,
+  '7d': 7,
+  '30d': 30,
+}
+
+function isInsideLogDateRange(log, range) {
+  const days = LOG_DATE_RANGE_DAYS[range]
+
+  if (!days) return true
+  if (!log.createdAt) return false
+
+  return new Date(log.createdAt).getTime() >= Date.now() - days * 24 * 60 * 60 * 1000
+}
+
 export function AuditLogs() {
   const { access, selectedOrganization, status } = useAccessControl()
   const { user } = useAuth()
   const isSuperAdmin = isSuperAdminAccess(user, access)
   const [error, setError] = useState(null)
-  const [filters, setFilters] = useState({ search: '', action: '' })
+  const [filters, setFilters] = useState({
+    action: '',
+    dateRange: '',
+    search: '',
+    status: '',
+  })
   const [isLoading, setIsLoading] = useState(true)
   const [logs, setLogs] = useState([])
-  const [pagination, setPagination] = useState(null)
   const organizationId = isSuperAdmin
     ? ''
     : selectedOrganization?.organization.id ?? ''
+  const visibleLogs = useMemo(
+    () =>
+      logs.filter((log) => {
+        const matchesStatus =
+          !filters.status ||
+          (filters.status === 'success' && log.statusCode < 400) ||
+          (filters.status === 'warning' && log.statusCode >= 400)
+
+        return matchesStatus && isInsideLogDateRange(log, filters.dateRange)
+      }),
+    [filters.dateRange, filters.status, logs],
+  )
 
   const loadLogs = useCallback(async () => {
     if (!isSuperAdmin && !organizationId) {
       setLogs([])
-      setPagination(null)
       setIsLoading(false)
       return
     }
@@ -59,7 +89,6 @@ export function AuditLogs() {
       })
 
       setLogs(data.logs ?? [])
-      setPagination(data.pagination ?? null)
     } catch (requestError) {
       setError(requestError)
     } finally {
@@ -84,7 +113,7 @@ export function AuditLogs() {
   }
 
   return (
-    <main className="page page--wide">
+    <main className="page page--wide page--audit-logs">
       <header className="page-header">
         <div>
           <p className="eyebrow">
@@ -97,14 +126,12 @@ export function AuditLogs() {
               : `Review state-changing actions for ${selectedOrganization?.organization.name}.`}
           </p>
         </div>
-        <Button onClick={() => void loadLogs()} variant="secondary">
-          Refresh
-        </Button>
+        <RefreshIconButton label="Refresh audit logs" onClick={() => void loadLogs()} />
       </header>
 
       {error && <Alert onDismiss={() => setError(null)}>{error.message}</Alert>}
 
-      <section className="card filter-bar">
+      <section className="card filter-bar audit-filter-bar">
         <Input
           label="Search logs"
           onChange={(event) =>
@@ -121,19 +148,49 @@ export function AuditLogs() {
           placeholder="POST /api/users"
           value={filters.action}
         />
+        <label className="field">
+          <span className="field__label">Outcome</span>
+          <select
+            onChange={(event) =>
+              setFilters((current) => ({ ...current, status: event.target.value }))
+            }
+            value={filters.status}
+          >
+            <option value="">All outcomes</option>
+            <option value="success">Success</option>
+            <option value="warning">Needs review</option>
+          </select>
+        </label>
+        <label className="field">
+          <span className="field__label">Date</span>
+          <select
+            onChange={(event) =>
+              setFilters((current) => ({
+                ...current,
+                dateRange: event.target.value,
+              }))
+            }
+            value={filters.dateRange}
+          >
+            <option value="">Any time</option>
+            <option value="24h">Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+          </select>
+        </label>
       </section>
 
       <section className="card">
         <div className="section-heading">
           <div>
             <span className="card__label">Recent events</span>
-            <h2>{pagination?.total ?? logs.length} records</h2>
+            <h2>{visibleLogs.length} records</h2>
           </div>
         </div>
 
         {isLoading ? (
           <Loader label="Loading audit logs..." />
-        ) : logs.length ? (
+        ) : visibleLogs.length ? (
           <div className="data-table" role="table">
             <div className="data-table__row data-table__row--head" role="row">
               <span role="columnheader">When</span>
@@ -142,7 +199,7 @@ export function AuditLogs() {
               <span role="columnheader">Resource</span>
               <span role="columnheader">Status</span>
             </div>
-            {logs.map((log) => {
+            {visibleLogs.map((log) => {
               const actor = getActor(log)
 
               return (

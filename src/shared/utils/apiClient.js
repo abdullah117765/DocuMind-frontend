@@ -42,16 +42,18 @@ export async function apiRequest(path, options = {}) {
 
 async function performRequest(path, options = {}) {
   const hasBody = options.body !== undefined
+  const isFormData =
+    typeof FormData !== 'undefined' && options.body instanceof FormData
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     credentials: 'include',
     headers: {
       Accept: 'application/json',
-      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+      ...(hasBody && !isFormData ? { 'Content-Type': 'application/json' } : {}),
       ...options.headers,
     },
     body:
-      hasBody && typeof options.body !== 'string'
+      hasBody && !isFormData && typeof options.body !== 'string'
         ? JSON.stringify(options.body)
         : options.body,
   })

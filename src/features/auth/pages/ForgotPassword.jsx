@@ -87,7 +87,7 @@ export function ForgotPassword() {
           value={email}
         />
         <Button disabled={isLoading} type="submit">
-          {isLoading ? 'Sending code…' : 'Send reset code'}
+          {isLoading ? 'Sending code...' : 'Send reset code'}
         </Button>
       </form>
     </AuthLayout>

@@ -3,7 +3,11 @@ import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
 import { useAccessControl } from '../hooks/useAccessControl.js'
 
-export function OrganizationPermissionBoundary({ children, permission }) {
+export function OrganizationPermissionBoundary({
+  children,
+  permission,
+  permissions,
+}) {
   const {
     error,
     hasPermission,
@@ -68,7 +72,12 @@ export function OrganizationPermissionBoundary({ children, permission }) {
     )
   }
 
-  if (!hasPermission(permission)) {
+  const requiredPermissions = permissions ?? [permission]
+  const hasAnyRequiredPermission = requiredPermissions.some((permissionCode) =>
+    hasPermission(permissionCode),
+  )
+
+  if (!hasAnyRequiredPermission) {
     return (
       <main className="page">
         <section className="empty-state">

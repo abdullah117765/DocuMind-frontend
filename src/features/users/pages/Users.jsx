@@ -3,16 +3,10 @@ import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
-import { Modal } from '../../../shared/components/Modal/Modal.jsx'
+import { RefreshIconButton } from '../../../shared/components/RefreshIconButton.jsx'
 import { useNotifications } from '../../../shared/useNotifications.js'
 import { useAuth } from '../../auth/hooks/useAuth.js'
 import {
-  EMAIL_PATTERN,
-  PASSWORD_PATTERN,
-  normalizeEmail,
-} from '../../auth/components/validation.js'
-import {
-  createUser,
   getUsers,
   updateUser,
 } from '../services/userApi.js'
@@ -48,116 +42,9 @@ function OrganizationMembershipSummary({ memberships = [] }) {
   )
 }
 
-function validateCreateForm(form) {
-  const errors = {}
-  const email = normalizeEmail(form.email)
-  const normalizedName = form.name.trim().replace(/\s+/g, ' ')
-
-  if (!/^[A-Za-z0-9]+(?: [A-Za-z0-9]+)*$/.test(normalizedName)) {
-    errors.name = 'Use letters, numbers, and single spaces only.'
-  }
-
-  if (!EMAIL_PATTERN.test(email)) {
-    errors.email = 'Enter a valid email address.'
-  }
-
-  if (!PASSWORD_PATTERN.test(form.password)) {
-    errors.password =
-      'Use 8-64 chars with uppercase, lowercase, number, and @ # $ % ^ & * !.'
-  }
-
-  return errors
-}
-
-function CreateUserModal({ isOpen, isSaving, onClose, onSubmit }) {
-  const [errors, setErrors] = useState({})
-  const [form, setForm] = useState({
-    email: '',
-    name: '',
-    password: '',
-  })
-
-  useEffect(() => {
-    if (isOpen) {
-      setErrors({})
-      setForm({ email: '', name: '', password: '' })
-    }
-  }, [isOpen])
-
-  function handleSubmit(event) {
-    event.preventDefault()
-    const nextErrors = validateCreateForm(form)
-
-    setErrors(nextErrors)
-
-    if (Object.keys(nextErrors).length > 0) return
-
-    void onSubmit({
-      email: normalizeEmail(form.email),
-      name: form.name.trim().replace(/\s+/g, ' '),
-      password: form.password,
-    })
-  }
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Create platform user">
-      <form className="form" onSubmit={handleSubmit}>
-        <Input
-          autoComplete="name"
-          disabled={isSaving}
-          error={errors.name}
-          hint="Letters, numbers, and single spaces only."
-          label="Name"
-          maxLength="150"
-          onChange={(event) =>
-            setForm((current) => ({ ...current, name: event.target.value }))
-          }
-          placeholder="Ahmed Khan"
-          required
-          value={form.name}
-        />
-        <Input
-          autoComplete="email"
-          disabled={isSaving}
-          error={errors.email}
-          label="Email"
-          onChange={(event) =>
-            setForm((current) => ({ ...current, email: event.target.value }))
-          }
-          placeholder="member@example.com"
-          required
-          type="email"
-          value={form.email}
-        />
-        <Input
-          autoComplete="new-password"
-          disabled={isSaving}
-          error={errors.password}
-          label="Temporary password"
-          onChange={(event) =>
-            setForm((current) => ({ ...current, password: event.target.value }))
-          }
-          required
-          type="password"
-          value={form.password}
-        />
-        <div className="form-actions">
-          <Button disabled={isSaving} onClick={onClose} variant="secondary">
-            Cancel
-          </Button>
-          <Button disabled={isSaving} type="submit">
-            {isSaving ? 'Creating...' : 'Create user'}
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  )
-}
-
 export function Users() {
   const { user: currentUser } = useAuth()
   const notifications = useNotifications()
-  const [createOpen, setCreateOpen] = useState(false)
   const [error, setError] = useState(null)
   const [filters, setFilters] = useState({
     search: '',
@@ -197,23 +84,6 @@ export function Users() {
     return () => window.clearTimeout(handle)
   }, [loadUsers])
 
-  async function handleCreateUser(values) {
-    setIsSaving(true)
-    setError(null)
-
-    try {
-      const created = await createUser(values)
-      notifications.success(`${created.email} was created.`)
-      setCreateOpen(false)
-      await loadUsers()
-    } catch (requestError) {
-      setError(requestError)
-      notifications.error(requestError.message)
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
   async function handleUpdateUser(targetUser, values) {
     setIsSaving(true)
     setError(null)
@@ -231,7 +101,7 @@ export function Users() {
   }
 
   return (
-    <main className="page page--wide">
+    <main className="page page--wide page--platform-users">
       <header className="page-header">
         <div>
           <p className="eyebrow">Platform administration</p>
@@ -241,12 +111,11 @@ export function Users() {
             Admin role assignment.
           </p>
         </div>
-        <div className="inline-actions">
-          <Button onClick={() => void loadUsers()} variant="secondary">
-            Refresh
-          </Button>
-          <Button onClick={() => setCreateOpen(true)}>Create user</Button>
-        </div>
+        <RefreshIconButton
+          disabled={isLoading}
+          label="Refresh users"
+          onClick={() => void loadUsers()}
+        />
       </header>
 
       {error && <Alert onDismiss={() => setError(null)}>{error.message}</Alert>}
@@ -356,13 +225,6 @@ export function Users() {
           </section>
         )}
       </section>
-
-      <CreateUserModal
-        isOpen={createOpen}
-        isSaving={isSaving}
-        onClose={() => !isSaving && setCreateOpen(false)}
-        onSubmit={handleCreateUser}
-      />
     </main>
   )
 }

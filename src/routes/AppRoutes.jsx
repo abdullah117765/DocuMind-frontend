@@ -11,6 +11,7 @@ import { VerifyEmail } from '../features/auth/pages/VerifyEmail.jsx'
 import { VerifyResetCode } from '../features/auth/pages/VerifyResetCode.jsx'
 import { useAuth } from '../features/auth/hooks/useAuth.js'
 import { Dashboard } from '../features/dashboard/pages/Dashboard.jsx'
+import { Documents } from '../features/documents/pages/Documents.jsx'
 import { AuditLogs } from '../features/users/pages/AuditLogs.jsx'
 import { Users } from '../features/users/pages/Users.jsx'
 import { Loader } from '../shared/components/Loader/Loader.jsx'
@@ -73,10 +74,12 @@ export function AppRoutes() {
   const protectedPages = {
     '/audit-logs': <AuditLogs />,
     '/dashboard': <Dashboard />,
+    '/documents': <Documents />,
     '/account/profile': <Profile />,
     '/account/sessions': <DeviceSessions />,
     '/organization/members': <Members />,
     '/organization/roles': <Roles />,
+    '/platform/documents': <Documents scope="platform" />,
     '/platform/organizations': <PlatformOrganizations />,
     '/platform/users': <Users />,
   }
