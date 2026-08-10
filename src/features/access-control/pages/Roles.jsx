@@ -4,7 +4,8 @@ import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
 import { Modal } from '../../../shared/components/Modal/Modal.jsx'
 import { useNotifications } from '../../../shared/useNotifications.js'
-import { OrganizationPermissionBoundary } from '../components/OrganizationPermissionBoundary.jsx'
+import { isSuperAdminAccess } from '../../../shared/utils/accessDisplay.js'
+import { useAuth } from '../../auth/hooks/useAuth.js'
 import { RoleForm } from '../components/RoleForm.jsx'
 import { useAccessControl } from '../hooks/useAccessControl.js'
 import {
@@ -305,6 +306,7 @@ function RolesContent() {
         {actionError && <Alert>{actionError.message}</Alert>}
         {isFormOpen && (
           <RoleForm
+            existingRoleNames={roles.map((role) => role.name)}
             isSaving={isSaving}
             key={editingRole?.id ?? 'new-role'}
             onCancel={() => setIsFormOpen(false)}
@@ -349,9 +351,48 @@ function RolesContent() {
 }
 
 export function Roles() {
-  return (
-    <OrganizationPermissionBoundary permission="roles.manage">
-      <RolesContent />
-    </OrganizationPermissionBoundary>
-  )
+  const { access, selectedOrganization, status } = useAccessControl()
+  const { user } = useAuth()
+  const isSuperAdmin = isSuperAdminAccess(user, access)
+
+  if (status === 'loading' || status === 'idle') {
+    return (
+      <main className="page">
+        <Loader label="Checking role access..." />
+      </main>
+    )
+  }
+
+  if (!isSuperAdmin) {
+    return (
+      <main className="page">
+        <section className="empty-state">
+          <div>
+            <p className="eyebrow">Super Admin only</p>
+            <h1>Custom roles are restricted</h1>
+            <p>
+              Organization admins can assign existing roles to members, but only
+              the Super Admin can create, edit, or delete custom roles.
+            </p>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
+  if (!selectedOrganization) {
+    return (
+      <main className="page">
+        <section className="empty-state">
+          <div>
+            <p className="eyebrow">Organization required</p>
+            <h1>Select an organization</h1>
+            <p>Create or select an organization before managing its roles.</p>
+          </div>
+        </section>
+      </main>
+    )
+  }
+
+  return <RolesContent />
 }

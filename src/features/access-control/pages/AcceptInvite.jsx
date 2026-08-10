@@ -6,11 +6,16 @@ import {
 } from '../../../routes/routerHooks.js'
 import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
+import { Input } from '../../../shared/components/Input/Input.jsx'
 import { AuthLayout } from '../../auth/components/AuthLayout.jsx'
-import { normalizeEmail } from '../../auth/components/validation.js'
+import {
+  normalizeEmail,
+  validatePassword,
+} from '../../auth/components/validation.js'
 import { useAuth } from '../../auth/hooks/useAuth.js'
 import {
   acceptOrganizationInvite,
+  acceptOrganizationInviteWithTemporaryPassword,
   previewOrganizationInvite,
 } from '../services/accessControlApi.js'
 
@@ -21,6 +26,12 @@ function getTokenFromLocation(location) {
   return fragmentParams.get('token')?.trim() ?? queryParams.get('token')?.trim() ?? ''
 }
 
+const initialActivationForm = {
+  confirmPassword: '',
+  newPassword: '',
+  temporaryPassword: '',
+}
+
 export function AcceptInvite() {
   const { isAuthenticated, signOut, status: authStatus, user } = useAuth()
   const location = useLocation()
@@ -29,6 +40,8 @@ export function AcceptInvite() {
   const [token] = useState(
     () => urlToken || location.state?.inviteToken || '',
   )
+  const [activationForm, setActivationForm] = useState(initialActivationForm)
+  const [activationErrors, setActivationErrors] = useState({})
   const [error, setError] = useState(null)
   const [isAccepting, setIsAccepting] = useState(false)
   const [preview, setPreview] = useState(null)
@@ -80,9 +93,56 @@ export function AcceptInvite() {
     try {
       const result = await acceptOrganizationInvite(token)
 
-      navigate('/account/access', {
+      navigate('/dashboard', {
         replace: true,
         state: { message: result.message },
+      })
+    } catch (requestError) {
+      setError(requestError)
+    } finally {
+      setIsAccepting(false)
+    }
+  }
+
+  async function handleActivateWithTemporaryPassword(event) {
+    event.preventDefault()
+
+    const nextErrors = {}
+
+    if (!activationForm.temporaryPassword.trim()) {
+      nextErrors.temporaryPassword = 'Temporary password is required.'
+    }
+
+    const passwordError = validatePassword(activationForm.newPassword)
+    if (passwordError) nextErrors.newPassword = passwordError
+
+    if (activationForm.confirmPassword !== activationForm.newPassword) {
+      nextErrors.confirmPassword = 'Passwords do not match.'
+    }
+
+    setActivationErrors(nextErrors)
+    setError(null)
+
+    if (Object.keys(nextErrors).length > 0) return
+
+    setIsAccepting(true)
+
+    try {
+      const result = await acceptOrganizationInviteWithTemporaryPassword({
+        email: invitedEmail,
+        newPassword: activationForm.newPassword,
+        temporaryPassword: activationForm.temporaryPassword.trim(),
+        token,
+      })
+
+      navigate('/login', {
+        replace: true,
+        state: {
+          email: invitedEmail,
+          message:
+            result.message ??
+            'Your account is active. Sign in with your new password.',
+        },
       })
     } catch (requestError) {
       setError(requestError)
@@ -108,6 +168,11 @@ export function AcceptInvite() {
     }
   }
 
+  function updateActivationField(field, value) {
+    setActivationForm((current) => ({ ...current, [field]: value }))
+    setActivationErrors((current) => ({ ...current, [field]: '' }))
+  }
+
   const invitedEmail = normalizeEmail(preview?.email ?? location.state?.invitedEmail ?? '')
   const signedInEmail = normalizeEmail(user?.email ?? '')
   const inviteRouteState = {
@@ -123,11 +188,14 @@ export function AcceptInvite() {
       state: inviteRouteState,
     },
   }
-  const registerRedirectState = {
-    email: invitedEmail,
-    from: loginRedirectState.from,
-  }
+  const canUseInvite = preview?.status === 'PENDING'
+  const terminalInviteMessage = {
+    ACCEPTED: 'This invitation has already been accepted. Sign in with the invited account to continue.',
+    EXPIRED: 'This invitation has expired. Ask an organization administrator to resend it.',
+    REVOKED: 'This invitation has been revoked. Ask an organization administrator for a new invitation.',
+  }[preview?.status] ?? ''
   const isWrongAccount = Boolean(
+    canUseInvite &&
     isAuthenticated &&
       invitedEmail &&
       signedInEmail &&
@@ -137,16 +205,14 @@ export function AcceptInvite() {
     error?.details?.reason ===
     'PLATFORM_ADMIN_CANNOT_ACCEPT_ORGANIZATION_INVITE'
   const footer = isAuthenticated ? (
-    <Link to="/account/access">Go to my access</Link>
+    <Link to="/dashboard">Go to dashboard</Link>
   ) : (
-    <Link state={loginRedirectState} to="/login">
-      Sign in to accept
-    </Link>
+    <Link state={loginRedirectState} to="/login">Sign in</Link>
   )
 
   return (
     <AuthLayout
-      description="Review the organization invitation, then accept it with the invited account."
+      description="Review the organization invitation, then activate it with the invited account."
       footer={footer}
       title="Organization invitation"
     >
@@ -156,7 +222,7 @@ export function AcceptInvite() {
       )}
       {preview && (
         <div className="invite-preview">
-          <Alert tone={preview.status === 'PENDING' ? 'info' : 'error'}>
+          <Alert tone={canUseInvite ? 'info' : 'error'}>
             Invitation status: {preview.status}
           </Alert>
           <div>
@@ -166,6 +232,7 @@ export function AcceptInvite() {
           </div>
           <div>
             <span className="card__label">Invited email</span>
+            {preview.name && <h2>{preview.name}</h2>}
             <strong>{preview.email}</strong>
           </div>
           {isAuthenticated && (
@@ -177,8 +244,7 @@ export function AcceptInvite() {
           {isWrongAccount && (
             <Alert tone="info" title="Use the invited account">
               You are signed in as {user?.email}. This invite belongs to{' '}
-              {preview.email}. Sign out, then sign in or register with the
-              invited email address.
+              {preview.email}. Sign out, then continue with the invited email.
             </Alert>
           )}
           {isPlatformAdminBlocked && (
@@ -190,7 +256,21 @@ export function AcceptInvite() {
           {error && !isWrongAccount && !isPlatformAdminBlocked && (
             <Alert>{error.message}</Alert>
           )}
-          {isAuthenticated ? (
+          {!canUseInvite ? (
+            <div className="invite-account-actions">
+              <Alert tone="info" title="No action needed here">
+                {terminalInviteMessage ||
+                  'This invitation is not available. Ask an administrator for help.'}
+              </Alert>
+              <Link
+                className="button button--primary"
+                state={loginRedirectState}
+                to={isAuthenticated ? '/dashboard' : '/login'}
+              >
+                {isAuthenticated ? 'Go to dashboard' : 'Go to sign in'}
+              </Link>
+            </div>
+          ) : isAuthenticated ? (
             isWrongAccount ? (
               <div className="invite-account-actions">
                 <Button
@@ -199,7 +279,7 @@ export function AcceptInvite() {
                 >
                   {isAccepting ? 'Signing out...' : 'Sign out and continue'}
                 </Button>
-                <Link className="button button--secondary" to="/account/access">
+                <Link className="button button--secondary" to="/dashboard">
                   Stay signed in
                 </Link>
               </div>
@@ -207,7 +287,7 @@ export function AcceptInvite() {
               <Button
                 disabled={
                   isAccepting ||
-                  preview.status !== 'PENDING' ||
+                  !canUseInvite ||
                   isPlatformAdminBlocked
                 }
                 onClick={handleAccept}
@@ -216,22 +296,69 @@ export function AcceptInvite() {
               </Button>
             )
           ) : (
-            <div className="invite-account-actions">
+            <form
+              className="form invite-activation-form"
+              onSubmit={handleActivateWithTemporaryPassword}
+            >
+              <p className="supporting-copy">
+                Enter the one-time password sent by the company, then create
+                your permanent password.
+              </p>
+              <Input
+                autoComplete="one-time-code"
+                disabled={isAccepting || !canUseInvite}
+                error={activationErrors.temporaryPassword}
+                label="One-time password"
+                maxLength="128"
+                onChange={(event) =>
+                  updateActivationField('temporaryPassword', event.target.value)
+                }
+                placeholder="Temporary password"
+                required
+                type="password"
+                value={activationForm.temporaryPassword}
+              />
+              <Input
+                autoComplete="new-password"
+                disabled={isAccepting || !canUseInvite}
+                error={activationErrors.newPassword}
+                label="New password"
+                maxLength="64"
+                minLength="8"
+                onChange={(event) =>
+                  updateActivationField('newPassword', event.target.value)
+                }
+                placeholder="Create a strong password"
+                required
+                type="password"
+                value={activationForm.newPassword}
+              />
+              <Input
+                autoComplete="new-password"
+                disabled={isAccepting || !canUseInvite}
+                error={activationErrors.confirmPassword}
+                label="Confirm new password"
+                maxLength="64"
+                minLength="8"
+                onChange={(event) =>
+                  updateActivationField('confirmPassword', event.target.value)
+                }
+                placeholder="Repeat your new password"
+                required
+                type="password"
+                value={activationForm.confirmPassword}
+              />
+              <Button disabled={isAccepting || !canUseInvite} type="submit">
+                {isAccepting ? 'Activating...' : 'Activate account'}
+              </Button>
               <Link
-                className="button button--primary"
+                className="button button--secondary"
                 state={loginRedirectState}
                 to="/login"
               >
-                Sign in as invited user
+                I already have a password
               </Link>
-              <Link
-                className="button button--secondary"
-                state={registerRedirectState}
-                to="/register"
-              >
-                Create invited account
-              </Link>
-            </div>
+            </form>
           )}
           {authStatus === 'loading' && (
             <p className="muted-copy">Checking your session...</p>

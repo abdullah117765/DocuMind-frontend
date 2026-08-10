@@ -1,4 +1,20 @@
-export function Alert({ children, onDismiss, title, tone = 'error' }) {
+import { useEffect } from 'react'
+
+export function Alert({
+  autoDismissMs,
+  children,
+  onDismiss,
+  title,
+  tone = 'error',
+}) {
+  useEffect(() => {
+    if (!autoDismissMs || !onDismiss) return undefined
+
+    const timer = window.setTimeout(onDismiss, autoDismissMs)
+
+    return () => window.clearTimeout(timer)
+  }, [autoDismissMs, onDismiss])
+
   return (
     <div
       className={`alert alert--${tone}${onDismiss ? ' alert--dismissible' : ''}`}

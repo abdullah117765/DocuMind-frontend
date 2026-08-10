@@ -3,7 +3,11 @@ import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
 import { useAccessControl } from '../hooks/useAccessControl.js'
 
-export function OrganizationPermissionBoundary({ children, permission }) {
+export function OrganizationPermissionBoundary({
+  children,
+  permission,
+  permissions,
+}) {
   const {
     error,
     hasPermission,
@@ -15,7 +19,7 @@ export function OrganizationPermissionBoundary({ children, permission }) {
   if (status === 'loading' || status === 'idle') {
     return (
       <main className="page">
-        <Loader label="Loading your workspace access…" />
+        <Loader label="Loading your organization access..." />
       </main>
     )
   }
@@ -41,7 +45,7 @@ export function OrganizationPermissionBoundary({ children, permission }) {
         <section className="empty-state">
           <div>
             <p className="eyebrow">Organization required</p>
-            <h1>No workspace available</h1>
+            <h1>No organization available</h1>
             <p>
               Your account does not currently have an organization membership.
             </p>
@@ -60,7 +64,7 @@ export function OrganizationPermissionBoundary({ children, permission }) {
             <h1>{selectedOrganization.organization.name}</h1>
             <p>
               An organization administrator must reactivate this membership
-              before you can use the workspace.
+              before you can use the organization.
             </p>
           </div>
         </section>
@@ -68,17 +72,19 @@ export function OrganizationPermissionBoundary({ children, permission }) {
     )
   }
 
-  if (!hasPermission(permission)) {
+  const requiredPermissions = permissions ?? [permission]
+  const hasAnyRequiredPermission = requiredPermissions.some((permissionCode) =>
+    hasPermission(permissionCode),
+  )
+
+  if (!hasAnyRequiredPermission) {
     return (
       <main className="page">
         <section className="empty-state">
           <div>
-            <p className="eyebrow">Permission required</p>
+            <p className="eyebrow">Role required</p>
             <h1>Access restricted</h1>
-            <p>
-              Your current roles do not grant <code>{permission}</code> in this
-              organization.
-            </p>
+            <p>Your current role cannot access this page.</p>
           </div>
         </section>
       </main>

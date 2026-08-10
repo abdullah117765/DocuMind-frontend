@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert } from '../../../shared/components/Alert.jsx'
-import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
+import { RefreshIconButton } from '../../../shared/components/RefreshIconButton.jsx'
+import { isSuperAdminAccess } from '../../../shared/utils/accessDisplay.js'
+import { useAccessControl } from '../../access-control/hooks/useAccessControl.js'
+import { useAuth } from '../../auth/hooks/useAuth.js'
 import { getAuditLogs } from '../services/auditApi.js'
 
 function formatDate(value) {
@@ -18,33 +21,80 @@ function formatMetadata(metadata) {
   return JSON.stringify(metadata, null, 2)
 }
 
+function getActor(log) {
+  return log.actor ?? log.metadata?.actor ?? null
+}
+
+const LOG_DATE_RANGE_DAYS = {
+  '24h': 1,
+  '7d': 7,
+  '30d': 30,
+}
+
+function isInsideLogDateRange(log, range) {
+  const days = LOG_DATE_RANGE_DAYS[range]
+
+  if (!days) return true
+  if (!log.createdAt) return false
+
+  return new Date(log.createdAt).getTime() >= Date.now() - days * 24 * 60 * 60 * 1000
+}
+
 export function AuditLogs() {
+  const { access, selectedOrganization, status } = useAccessControl()
+  const { user } = useAuth()
+  const isSuperAdmin = isSuperAdminAccess(user, access)
   const [error, setError] = useState(null)
-  const [filters, setFilters] = useState({ search: '', action: '' })
+  const [filters, setFilters] = useState({
+    action: '',
+    dateRange: '',
+    search: '',
+    status: '',
+  })
   const [isLoading, setIsLoading] = useState(true)
   const [logs, setLogs] = useState([])
-  const [pagination, setPagination] = useState(null)
+  const organizationId = isSuperAdmin
+    ? ''
+    : selectedOrganization?.organization.id ?? ''
+  const visibleLogs = useMemo(
+    () =>
+      logs.filter((log) => {
+        const matchesStatus =
+          !filters.status ||
+          (filters.status === 'success' && log.statusCode < 400) ||
+          (filters.status === 'warning' && log.statusCode >= 400)
+
+        return matchesStatus && isInsideLogDateRange(log, filters.dateRange)
+      }),
+    [filters.dateRange, filters.status, logs],
+  )
 
   const loadLogs = useCallback(async () => {
+    if (!isSuperAdmin && !organizationId) {
+      setLogs([])
+      setIsLoading(false)
+      return
+    }
+
     setError(null)
     setIsLoading(true)
 
     try {
       const data = await getAuditLogs({
+        action: filters.action.trim(),
+        organizationId,
         page: 1,
         pageSize: 50,
         search: filters.search.trim(),
-        action: filters.action.trim(),
       })
 
       setLogs(data.logs ?? [])
-      setPagination(data.pagination ?? null)
     } catch (requestError) {
       setError(requestError)
     } finally {
       setIsLoading(false)
     }
-  }, [filters.action, filters.search])
+  }, [filters.action, filters.search, isSuperAdmin, organizationId])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -54,31 +104,40 @@ export function AuditLogs() {
     return () => window.clearTimeout(handle)
   }, [loadLogs])
 
+  if (status === 'loading' || status === 'idle') {
+    return (
+      <main className="page">
+        <Loader label="Checking audit log access..." />
+      </main>
+    )
+  }
+
   return (
-    <main className="page page--wide">
+    <main className="page page--wide page--audit-logs">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Platform security</p>
+          <p className="eyebrow">
+            {isSuperAdmin ? 'Platform security' : 'Organization security'}
+          </p>
           <h1>Audit logs</h1>
           <p>
-            Review state-changing actions across the platform. Sensitive request
-            fields are redacted before storage.
+            {isSuperAdmin
+              ? 'Review state-changing actions across the platform.'
+              : `Review state-changing actions for ${selectedOrganization?.organization.name}.`}
           </p>
         </div>
-        <Button onClick={() => void loadLogs()} variant="secondary">
-          Refresh
-        </Button>
+        <RefreshIconButton label="Refresh audit logs" onClick={() => void loadLogs()} />
       </header>
 
       {error && <Alert onDismiss={() => setError(null)}>{error.message}</Alert>}
 
-      <section className="card filter-bar">
+      <section className="card filter-bar audit-filter-bar">
         <Input
           label="Search logs"
           onChange={(event) =>
             setFilters((current) => ({ ...current, search: event.target.value }))
           }
-          placeholder="user email, organization, action..."
+          placeholder="user, organization, action..."
           value={filters.search}
         />
         <Input
@@ -89,19 +148,49 @@ export function AuditLogs() {
           placeholder="POST /api/users"
           value={filters.action}
         />
+        <label className="field">
+          <span className="field__label">Outcome</span>
+          <select
+            onChange={(event) =>
+              setFilters((current) => ({ ...current, status: event.target.value }))
+            }
+            value={filters.status}
+          >
+            <option value="">All outcomes</option>
+            <option value="success">Success</option>
+            <option value="warning">Needs review</option>
+          </select>
+        </label>
+        <label className="field">
+          <span className="field__label">Date</span>
+          <select
+            onChange={(event) =>
+              setFilters((current) => ({
+                ...current,
+                dateRange: event.target.value,
+              }))
+            }
+            value={filters.dateRange}
+          >
+            <option value="">Any time</option>
+            <option value="24h">Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+          </select>
+        </label>
       </section>
 
       <section className="card">
         <div className="section-heading">
           <div>
             <span className="card__label">Recent events</span>
-            <h2>{pagination?.total ?? logs.length} records</h2>
+            <h2>{visibleLogs.length} records</h2>
           </div>
         </div>
 
         {isLoading ? (
           <Loader label="Loading audit logs..." />
-        ) : logs.length ? (
+        ) : visibleLogs.length ? (
           <div className="data-table" role="table">
             <div className="data-table__row data-table__row--head" role="row">
               <span role="columnheader">When</span>
@@ -110,28 +199,44 @@ export function AuditLogs() {
               <span role="columnheader">Resource</span>
               <span role="columnheader">Status</span>
             </div>
-            {logs.map((log) => (
-              <details className="data-table__details" key={log.id}>
-                <summary className="data-table__row" role="row">
-                  <span role="cell">{formatDate(log.createdAt)}</span>
-                  <span role="cell">{log.actor?.email ?? 'System'}</span>
-                  <code role="cell">{log.action}</code>
-                  <span role="cell">{log.organization?.name ?? log.resource}</span>
-                  <span role="cell">
-                    <span
-                      className={`status-badge ${
-                        log.statusCode < 400
-                          ? 'status-badge--success'
-                          : 'status-badge--warning'
-                      }`}
-                    >
-                      {log.statusCode}
+            {visibleLogs.map((log) => {
+              const actor = getActor(log)
+
+              return (
+                <details className="data-table__details" key={log.id}>
+                  <summary className="data-table__row" role="row">
+                    <span role="cell">{formatDate(log.createdAt)}</span>
+                    <span role="cell">
+                      {actor ? (
+                        <>
+                          <strong>{actor.name ?? actor.email}</strong>
+                          <small>{actor.email}</small>
+                        </>
+                      ) : (
+                        <>
+                          <strong>System</strong>
+                          <small>Automated event</small>
+                        </>
+                      )}
                     </span>
-                  </span>
-                </summary>
-                <pre className="metadata-block">{formatMetadata(log.metadata)}</pre>
-              </details>
-            ))}
+                    <code role="cell">{log.action}</code>
+                    <span role="cell">{log.organization?.name ?? log.resource}</span>
+                    <span role="cell">
+                      <span
+                        className={`status-badge ${
+                          log.statusCode < 400
+                            ? 'status-badge--success'
+                            : 'status-badge--warning'
+                        }`}
+                      >
+                        {log.statusCode}
+                      </span>
+                    </span>
+                  </summary>
+                  <pre className="metadata-block">{formatMetadata(log.metadata)}</pre>
+                </details>
+              )
+            })}
           </div>
         ) : (
           <section className="empty-state empty-state--compact">

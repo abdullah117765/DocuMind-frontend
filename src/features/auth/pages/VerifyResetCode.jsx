@@ -187,7 +187,7 @@ export function VerifyResetCode() {
             variant="secondary"
           >
             {isResending
-              ? 'Sending code…'
+              ? 'Sending code...'
               : cooldownSeconds > 0
                 ? `Resend code in ${cooldownSeconds}s`
                 : 'Resend code'}
@@ -239,7 +239,7 @@ export function VerifyResetCode() {
           value={otp}
         />
         <Button disabled={isVerifying || otpSeconds <= 0} type="submit">
-          {isVerifying ? 'Verifying…' : 'Verify code'}
+          {isVerifying ? 'Verifying...' : 'Verify code'}
         </Button>
       </form>
     </AuthLayout>

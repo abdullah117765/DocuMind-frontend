@@ -1,21 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
-import { Modal } from '../../../shared/components/Modal/Modal.jsx'
+import { RefreshIconButton } from '../../../shared/components/RefreshIconButton.jsx'
 import { useNotifications } from '../../../shared/useNotifications.js'
 import { useAuth } from '../../auth/hooks/useAuth.js'
 import {
-  EMAIL_PATTERN,
-  PASSWORD_PATTERN,
-  normalizeEmail,
-} from '../../auth/components/validation.js'
-import {
-  createUser,
-  getPlatformRoles,
   getUsers,
-  replacePlatformRoles,
   updateUser,
 } from '../services/userApi.js'
 
@@ -39,14 +31,10 @@ function OrganizationMembershipSummary({ memberships = [] }) {
           <span className="muted-copy">{membership.status}</span>
           {membership.roles.length ? (
             <div className="chip-list">
-              {membership.roles.map((role) => (
-                <span className="role-chip" key={role.id}>
-                  {role.name}
-                </span>
-              ))}
+              <span className="role-chip">{membership.roles[0].name}</span>
             </div>
           ) : (
-            <span className="muted-copy">No roles assigned</span>
+            <span className="muted-copy">No role assigned</span>
           )}
         </div>
       ))}
@@ -54,209 +42,17 @@ function OrganizationMembershipSummary({ memberships = [] }) {
   )
 }
 
-function validateCreateForm(form) {
-  const errors = {}
-  const email = normalizeEmail(form.email)
-
-  if (!EMAIL_PATTERN.test(email)) {
-    errors.email = 'Enter a valid email address.'
-  }
-
-  if (!PASSWORD_PATTERN.test(form.password)) {
-    errors.password =
-      'Use 8-64 chars with uppercase, lowercase, number, and @ # $ % ^ & * !.'
-  }
-
-  return errors
-}
-
-function CreateUserModal({ isOpen, isSaving, onClose, onSubmit }) {
-  const [errors, setErrors] = useState({})
-  const [form, setForm] = useState({
-    email: '',
-    isVerified: true,
-    password: '',
-  })
-
-  useEffect(() => {
-    if (isOpen) {
-      setErrors({})
-      setForm({ email: '', isVerified: true, password: '' })
-    }
-  }, [isOpen])
-
-  function handleSubmit(event) {
-    event.preventDefault()
-    const nextErrors = validateCreateForm(form)
-
-    setErrors(nextErrors)
-
-    if (Object.keys(nextErrors).length > 0) return
-
-    void onSubmit({
-      email: normalizeEmail(form.email),
-      isVerified: form.isVerified,
-      password: form.password,
-    })
-  }
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Create platform user">
-      <form className="form" onSubmit={handleSubmit}>
-        <Input
-          autoComplete="email"
-          disabled={isSaving}
-          error={errors.email}
-          label="Email"
-          onChange={(event) =>
-            setForm((current) => ({ ...current, email: event.target.value }))
-          }
-          placeholder="member@example.com"
-          required
-          type="email"
-          value={form.email}
-        />
-        <Input
-          autoComplete="new-password"
-          disabled={isSaving}
-          error={errors.password}
-          label="Temporary password"
-          onChange={(event) =>
-            setForm((current) => ({ ...current, password: event.target.value }))
-          }
-          required
-          type="password"
-          value={form.password}
-        />
-        <label className="check-row">
-          <input
-            checked={form.isVerified}
-            disabled={isSaving}
-            onChange={(event) =>
-              setForm((current) => ({
-                ...current,
-                isVerified: event.target.checked,
-              }))
-            }
-            type="checkbox"
-          />
-          <span>Create as verified</span>
-        </label>
-        <div className="form-actions">
-          <Button disabled={isSaving} onClick={onClose} variant="secondary">
-            Cancel
-          </Button>
-          <Button disabled={isSaving} type="submit">
-            {isSaving ? 'Creating...' : 'Create user'}
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  )
-}
-
-function PlatformRoleModal({
-  currentUserId,
-  isOpen,
-  isSaving,
-  onClose,
-  onSubmit,
-  roles,
-  user,
-}) {
-  const [roleIds, setRoleIds] = useState([])
-  const selectedRoles = useMemo(() => new Set(roleIds), [roleIds])
-  const isSelf = user?.id === currentUserId
-
-  useEffect(() => {
-    if (user) {
-      setRoleIds(user.platformRoles.map((role) => role.id))
-    }
-  }, [user])
-
-  function toggleRole(roleId) {
-    const nextRoles = new Set(selectedRoles)
-
-    if (nextRoles.has(roleId)) {
-      nextRoles.delete(roleId)
-    } else {
-      nextRoles.add(roleId)
-    }
-
-    setRoleIds([...nextRoles])
-  }
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Platform roles">
-      {user && (
-        <form
-          className="form"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void onSubmit(user.id, roleIds)
-          }}
-        >
-          <div className="member-identity">
-            <span className="field__label">User</span>
-            <strong>{user.email}</strong>
-          </div>
-          {isSelf && (
-            <Alert tone="info">
-              You cannot change your own platform roles. This protects the last
-              Super Admin from accidental lockout.
-            </Alert>
-          )}
-          <fieldset className="role-options">
-            <legend className="field__label">Assignable platform roles</legend>
-            <div className="role-options__list">
-              {roles.map((role) => (
-                <label className="role-option" key={role.id}>
-                  <input
-                    checked={selectedRoles.has(role.id)}
-                    disabled={isSaving || isSelf}
-                    onChange={() => toggleRole(role.id)}
-                    type="checkbox"
-                  />
-                  <span>
-                    <strong>{role.name}</strong>
-                    <small>
-                      {role.permissionCodes.length} permission
-                      {role.permissionCodes.length === 1 ? '' : 's'}
-                    </small>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <div className="form-actions">
-            <Button disabled={isSaving} onClick={onClose} variant="secondary">
-              Close
-            </Button>
-            <Button disabled={isSaving || isSelf} type="submit">
-              {isSaving ? 'Saving...' : 'Save roles'}
-            </Button>
-          </div>
-        </form>
-      )}
-    </Modal>
-  )
-}
-
 export function Users() {
   const { user: currentUser } = useAuth()
   const notifications = useNotifications()
-  const [createOpen, setCreateOpen] = useState(false)
   const [error, setError] = useState(null)
   const [filters, setFilters] = useState({
     search: '',
     status: 'active',
-    verified: '',
   })
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [pagination, setPagination] = useState(null)
-  const [platformRoles, setPlatformRoles] = useState([])
-  const [roleUser, setRoleUser] = useState(null)
   const [users, setUsers] = useState([])
 
   const loadUsers = useCallback(async () => {
@@ -264,26 +60,21 @@ export function Users() {
     setIsLoading(true)
 
     try {
-      const [userData, roleData] = await Promise.all([
-        getUsers({
-          page: 1,
-          pageSize: 50,
-          search: filters.search.trim(),
-          status: filters.status,
-          verified: filters.verified,
-        }),
-        getPlatformRoles(),
-      ])
+      const userData = await getUsers({
+        page: 1,
+        pageSize: 50,
+        search: filters.search.trim(),
+        status: filters.status,
+      })
 
       setUsers(userData.users ?? [])
       setPagination(userData.pagination ?? null)
-      setPlatformRoles(roleData)
     } catch (requestError) {
       setError(requestError)
     } finally {
       setIsLoading(false)
     }
-  }, [filters.search, filters.status, filters.verified])
+  }, [filters.search, filters.status])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -292,23 +83,6 @@ export function Users() {
 
     return () => window.clearTimeout(handle)
   }, [loadUsers])
-
-  async function handleCreateUser(values) {
-    setIsSaving(true)
-    setError(null)
-
-    try {
-      const created = await createUser(values)
-      notifications.success(`${created.email} was created.`)
-      setCreateOpen(false)
-      await loadUsers()
-    } catch (requestError) {
-      setError(requestError)
-      notifications.error(requestError.message)
-    } finally {
-      setIsSaving(false)
-    }
-  }
 
   async function handleUpdateUser(targetUser, values) {
     setIsSaving(true)
@@ -326,40 +100,22 @@ export function Users() {
     }
   }
 
-  async function handleReplaceRoles(userId, roleIds) {
-    setIsSaving(true)
-    setError(null)
-
-    try {
-      const updated = await replacePlatformRoles(userId, roleIds)
-      notifications.success(`Platform roles for ${updated.email} were updated.`)
-      setRoleUser(null)
-      await loadUsers()
-    } catch (requestError) {
-      setError(requestError)
-      notifications.error(requestError.message)
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
   return (
-    <main className="page page--wide">
+    <main className="page page--wide page--platform-users">
       <header className="page-header">
         <div>
           <p className="eyebrow">Platform administration</p>
           <h1>Users</h1>
           <p>
-            Search accounts, manage verification and active state, and assign
-            platform roles without allowing self-demotion.
+            Search accounts and control active state without exposing Super
+            Admin role assignment.
           </p>
         </div>
-        <div className="inline-actions">
-          <Button onClick={() => void loadUsers()} variant="secondary">
-            Refresh
-          </Button>
-          <Button onClick={() => setCreateOpen(true)}>Create user</Button>
-        </div>
+        <RefreshIconButton
+          disabled={isLoading}
+          label="Refresh users"
+          onClick={() => void loadUsers()}
+        />
       </header>
 
       {error && <Alert onDismiss={() => setError(null)}>{error.message}</Alert>}
@@ -386,22 +142,6 @@ export function Users() {
             <option value="all">All</option>
           </select>
         </label>
-        <label className="field">
-          <span className="field__label">Verification</span>
-          <select
-            onChange={(event) =>
-              setFilters((current) => ({
-                ...current,
-                verified: event.target.value,
-              }))
-            }
-            value={filters.verified}
-          >
-            <option value="">Any</option>
-            <option value="true">Verified</option>
-            <option value="false">Unverified</option>
-          </select>
-        </label>
       </section>
 
       <section className="card">
@@ -419,7 +159,7 @@ export function Users() {
             <div className="data-table__row data-table__row--head" role="row">
               <span role="columnheader">User</span>
               <span role="columnheader">State</span>
-              <span role="columnheader">Platform roles</span>
+              <span role="columnheader">Platform role</span>
               <span role="columnheader">Organizations</span>
               <span role="columnheader">Actions</span>
             </div>
@@ -429,7 +169,8 @@ export function Users() {
               return (
                 <article className="data-table__row" key={managedUser.id} role="row">
                   <span role="cell">
-                    <strong>{managedUser.email}</strong>
+                    <strong>{managedUser.name ?? managedUser.email}</strong>
+                    {managedUser.name && <small>{managedUser.email}</small>}
                     <small>Created {formatDate(managedUser.createdAt)}</small>
                   </span>
                   <span role="cell">
@@ -442,25 +183,14 @@ export function Users() {
                     >
                       {managedUser.isActive ? 'ACTIVE' : 'INACTIVE'}
                     </span>
-                    <span
-                      className={`status-badge ${
-                        managedUser.isVerified
-                          ? 'status-badge--success'
-                          : 'status-badge--warning'
-                      }`}
-                    >
-                      {managedUser.isVerified ? 'VERIFIED' : 'UNVERIFIED'}
-                    </span>
                   </span>
                   <span className="chip-list" role="cell">
                     {managedUser.platformRoles.length ? (
-                      managedUser.platformRoles.map((role) => (
-                        <span className="role-chip" key={role.id}>
-                          {role.name}
-                        </span>
-                      ))
+                      <span className="role-chip">
+                        {managedUser.platformRoles[0].name}
+                      </span>
                     ) : (
-                      <span className="muted-copy">No platform roles</span>
+                      <span className="muted-copy">No platform role</span>
                     )}
                   </span>
                   <span role="cell">
@@ -469,24 +199,6 @@ export function Users() {
                     />
                   </span>
                   <span className="inline-actions" role="cell">
-                    <Button
-                      disabled={isSaving}
-                      onClick={() => setRoleUser(managedUser)}
-                      variant="secondary"
-                    >
-                      Roles
-                    </Button>
-                    <Button
-                      disabled={isSaving}
-                      onClick={() =>
-                        void handleUpdateUser(managedUser, {
-                          isVerified: !managedUser.isVerified,
-                        })
-                      }
-                      variant="secondary"
-                    >
-                      {managedUser.isVerified ? 'Unverify' : 'Verify'}
-                    </Button>
                     <Button
                       disabled={isSaving || isSelf}
                       onClick={() =>
@@ -513,23 +225,6 @@ export function Users() {
           </section>
         )}
       </section>
-
-      <CreateUserModal
-        isOpen={createOpen}
-        isSaving={isSaving}
-        onClose={() => !isSaving && setCreateOpen(false)}
-        onSubmit={handleCreateUser}
-      />
-
-      <PlatformRoleModal
-        currentUserId={currentUser.id}
-        isOpen={Boolean(roleUser)}
-        isSaving={isSaving}
-        onClose={() => !isSaving && setRoleUser(null)}
-        onSubmit={handleReplaceRoles}
-        roles={platformRoles}
-        user={roleUser}
-      />
     </main>
   )
 }

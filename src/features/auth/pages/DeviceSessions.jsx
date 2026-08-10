@@ -119,7 +119,7 @@ export function DeviceSessions() {
   }
 
   return (
-    <main className="page">
+    <main className="page page--account-sessions">
       <header className="page-header">
         <div>
           <p className="eyebrow">Account security</p>
@@ -131,7 +131,7 @@ export function DeviceSessions() {
           onClick={handleSignOutAll}
           variant="danger"
         >
-          {isSigningOutAll ? 'Signing out…' : 'Sign out all devices'}
+          {isSigningOutAll ? 'Signing out...' : 'Sign out all devices'}
         </Button>
       </header>
 
@@ -143,7 +143,7 @@ export function DeviceSessions() {
       {error && <Alert onDismiss={() => setError(null)}>{error.message}</Alert>}
 
       {isLoading ? (
-        <Loader label="Loading active devices…" />
+        <Loader label="Loading active devices..." />
       ) : (
         <section className="session-list" aria-label="Active sessions">
           {sessions.length === 0 ? (
@@ -194,7 +194,7 @@ export function DeviceSessions() {
                   variant="secondary"
                 >
                   {workingSessionId === session.id
-                    ? 'Signing out…'
+                    ? 'Signing out...'
                     : 'Sign out'}
                 </Button>
               </article>

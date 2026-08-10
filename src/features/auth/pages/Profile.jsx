@@ -1,31 +1,38 @@
 import { Link } from '../../../routes/RouterElements.jsx'
-import { Button } from '../../../shared/components/Button/Button.jsx'
+import {
+  getDisplayName,
+  getPrimaryRoleName,
+  isSuperAdminAccess,
+} from '../../../shared/utils/accessDisplay.js'
 import { useAccessControl } from '../../access-control/hooks/useAccessControl.js'
 import { useAuth } from '../hooks/useAuth.js'
-
-function roleNames(roles = []) {
-  return roles.length ? roles.map((role) => role.name).join(', ') : 'No roles'
-}
 
 export function Profile() {
   const { session, user } = useAuth()
   const {
     access,
-    effectivePermissions,
     effectiveRoles,
     selectedOrganization,
   } = useAccessControl()
+  const displayName = getDisplayName(user)
+  const isSuperAdmin = isSuperAdminAccess(user, access)
+  const accountScopeLabel = isSuperAdmin ? 'Account scope' : 'Organization'
+  const accountScopeTitle = isSuperAdmin
+    ? 'Platform only'
+    : selectedOrganization?.organization.name ?? 'No organization'
+  const accountScopeDescription = isSuperAdmin
+    ? 'Super Admin can oversee organizations without becoming a tenant member.'
+    : selectedOrganization
+      ? getPrimaryRoleName(effectiveRoles)
+      : 'You are not assigned to an organization yet.'
 
   return (
-    <main className="page page--wide">
+    <main className="page page--wide page--account-profile">
       <header className="page-header">
         <div>
           <p className="eyebrow">Account center</p>
           <h1>Profile</h1>
-          <p>
-            Review your identity, workspace context, active access, and current
-            session details.
-          </p>
+          <p>Review identity, role, and current session for {displayName}.</p>
         </div>
         <Link className="button button--secondary" to="/account/sessions">
           Manage devices
@@ -33,42 +40,20 @@ export function Profile() {
       </header>
 
       <section className="profile-layout">
-        <article className="card profile-summary-card">
-          <span className="profile-avatar profile-avatar--xl">
-            {user.email.slice(0, 1).toUpperCase()}
-          </span>
-          <div>
-            <span className="card__label">Signed in as</span>
-            <h2>{user.email}</h2>
-            <span
-              className={`status-badge ${
-                user.isVerified
-                  ? 'status-badge--success'
-                  : 'status-badge--warning'
-              }`}
-            >
-              {user.isVerified ? 'Verified account' : 'Email not verified'}
-            </span>
-          </div>
-        </article>
-
         <article className="card">
-          <span className="card__label">Platform access</span>
-          <h2>{roleNames(access?.platform?.roles)}</h2>
+          <span className="card__label">Platform role</span>
+          <h2>{isSuperAdmin ? 'Super Admin' : 'No platform role'}</h2>
           <p className="muted-copy">
-            {access?.platform?.permissions?.length ?? 0} platform permission
-            {(access?.platform?.permissions?.length ?? 0) === 1 ? '' : 's'}
+            {isSuperAdmin
+              ? 'Platform-level access is active.'
+              : 'Platform-level access is restricted.'}
           </p>
         </article>
 
         <article className="card">
-          <span className="card__label">Selected workspace</span>
-          <h2>{selectedOrganization?.organization.name ?? 'No workspace'}</h2>
-          <p className="muted-copy">
-            {selectedOrganization
-              ? roleNames(effectiveRoles)
-              : 'Select or create an organization to see workspace access.'}
-          </p>
+          <span className="card__label">{accountScopeLabel}</span>
+          <h2>{accountScopeTitle}</h2>
+          <p className="muted-copy">{accountScopeDescription}</p>
         </article>
 
         <article className="card">
@@ -80,27 +65,18 @@ export function Profile() {
         </article>
       </section>
 
-      <section className="section-block">
+      <section className="card selected-access">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Effective permissions</p>
-            <h2>{effectivePermissions.length} workspace permissions</h2>
+            <p className="eyebrow">Security note</p>
+            <h2>Permissions are enforced by the backend</h2>
           </div>
-          <Button disabled variant="secondary">
-            Read only
-          </Button>
         </div>
-        <div className="permission-chip-list">
-          {effectivePermissions.length ? (
-            effectivePermissions.map((permission) => (
-              <span className="permission-chip" key={permission}>
-                {permission}
-              </span>
-            ))
-          ) : (
-            <span className="muted-copy">No workspace permissions active.</span>
-          )}
-        </div>
+        <p className="muted-copy">
+          This profile shows your role and account state. Internal permission
+          codes stay hidden from normal profile views and are checked server-side
+          on each protected operation.
+        </p>
       </section>
     </main>
   )

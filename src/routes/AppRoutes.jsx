@@ -1,21 +1,17 @@
 import { AcceptInvite } from '../features/access-control/pages/AcceptInvite.jsx'
-import { DiscoverOrganizations } from '../features/access-control/pages/DiscoverOrganizations.jsx'
 import { Members } from '../features/access-control/pages/Members.jsx'
-import { MyAccess } from '../features/access-control/pages/MyAccess.jsx'
-import { OrganizationSettings } from '../features/access-control/pages/OrganizationSettings.jsx'
-import { OrganizationSubscription } from '../features/access-control/pages/OrganizationSubscription.jsx'
 import { PlatformOrganizations } from '../features/access-control/pages/PlatformOrganizations.jsx'
 import { Roles } from '../features/access-control/pages/Roles.jsx'
 import { DeviceSessions } from '../features/auth/pages/DeviceSessions.jsx'
 import { ForgotPassword } from '../features/auth/pages/ForgotPassword.jsx'
 import { Login } from '../features/auth/pages/Login.jsx'
 import { Profile } from '../features/auth/pages/Profile.jsx'
-import { Register } from '../features/auth/pages/Register.jsx'
 import { ResetPassword } from '../features/auth/pages/ResetPassword.jsx'
 import { VerifyEmail } from '../features/auth/pages/VerifyEmail.jsx'
 import { VerifyResetCode } from '../features/auth/pages/VerifyResetCode.jsx'
 import { useAuth } from '../features/auth/hooks/useAuth.js'
 import { Dashboard } from '../features/dashboard/pages/Dashboard.jsx'
+import { Documents } from '../features/documents/pages/Documents.jsx'
 import { AuditLogs } from '../features/users/pages/AuditLogs.jsx'
 import { Users } from '../features/users/pages/Users.jsx'
 import { Loader } from '../shared/components/Loader/Loader.jsx'
@@ -43,11 +39,21 @@ export function AppRoutes() {
     return <Navigate replace to={isAuthenticated ? '/dashboard' : '/login'} />
   }
 
-  if (pathname === '/login' || pathname === '/register') {
+  if (pathname === '/login') {
     if (status === 'loading') return <FullPageLoader />
     if (isAuthenticated) return <Navigate replace to="/dashboard" />
 
-    return pathname === '/login' ? <Login /> : <Register />
+    return <Login />
+  }
+
+  if (pathname === '/register') {
+    return (
+      <Navigate
+        replace
+        state={{ message: 'Accounts are created by invitation only.' }}
+        to="/login"
+      />
+    )
   }
 
   if (pathname === '/verify-email') return <VerifyEmail />
@@ -55,18 +61,25 @@ export function AppRoutes() {
   if (pathname === '/forgot-password') return <ForgotPassword />
   if (pathname === '/verify-reset-code') return <VerifyResetCode />
   if (pathname === '/reset-password') return <ResetPassword />
+  if (pathname === '/account/access' || pathname === '/platform/audit-logs') {
+    return (
+      <Navigate
+        replace
+        state={location.state}
+        to={pathname === '/account/access' ? '/account/profile' : '/audit-logs'}
+      />
+    )
+  }
 
   const protectedPages = {
+    '/audit-logs': <AuditLogs />,
     '/dashboard': <Dashboard />,
-    '/account/access': <MyAccess />,
+    '/documents': <Documents />,
     '/account/profile': <Profile />,
     '/account/sessions': <DeviceSessions />,
-    '/organizations/discover': <DiscoverOrganizations />,
     '/organization/members': <Members />,
     '/organization/roles': <Roles />,
-    '/organization/settings': <OrganizationSettings />,
-    '/organization/subscription': <OrganizationSubscription />,
-    '/platform/audit-logs': <AuditLogs />,
+    '/platform/documents': <Documents scope="platform" />,
     '/platform/organizations': <PlatformOrganizations />,
     '/platform/users': <Users />,
   }

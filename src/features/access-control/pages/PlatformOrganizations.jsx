@@ -3,7 +3,7 @@ import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
-import { Link } from '../../../routes/RouterElements.jsx'
+import { RefreshIconButton } from '../../../shared/components/RefreshIconButton.jsx'
 import { useNotifications } from '../../../shared/useNotifications.js'
 import { useAccessControl } from '../hooks/useAccessControl.js'
 import {
@@ -28,8 +28,8 @@ function validateName(value) {
   if (!normalizedName) return 'Organization name is required.'
   if (normalizedName.length < 2) return 'Use at least 2 characters.'
   if (normalizedName.length > 150) return 'Use no more than 150 characters.'
-  if (!/^[A-Za-z0-9][A-Za-z0-9 .&'_-]*$/.test(normalizedName)) {
-    return 'Use letters, numbers, spaces, dots, ampersands, apostrophes, underscores, or hyphens.'
+  if (!/^[A-Za-z0-9]+(?: [A-Za-z0-9]+)*$/.test(normalizedName)) {
+    return 'Use letters, numbers, and single spaces only.'
   }
 
   return ''
@@ -59,22 +59,8 @@ function OrganizationSetupActions({ organization, onSelect }) {
   return (
     <div className="tenant-setup-actions">
       <Button onClick={() => onSelect(organization.id)} variant="secondary">
-        Use workspace
+        Select organization
       </Button>
-      <Link
-        className="button button--secondary"
-        onClick={() => onSelect(organization.id)}
-        to="/organization/members"
-      >
-        Assign admin
-      </Link>
-      <Link
-        className="button button--secondary"
-        onClick={() => onSelect(organization.id)}
-        to="/organization/subscription"
-      >
-        Limits
-      </Link>
     </div>
   )
 }
@@ -202,17 +188,15 @@ export function PlatformOrganizations() {
           <p className="eyebrow">Platform administration</p>
           <h1>Organizations</h1>
           <p>
-            Create tenant workspaces and keep the platform organization catalog
-            in one controlled place.
+            Create tenant organizations and keep the platform catalog in one
+            controlled place.
           </p>
         </div>
-        <Button
+        <RefreshIconButton
           disabled={isLoading}
+          label="Refresh organizations"
           onClick={() => void loadOrganizations()}
-          variant="secondary"
-        >
-          Refresh
-        </Button>
+        />
       </header>
 
       {notice && (
@@ -232,8 +216,8 @@ export function PlatformOrganizations() {
             <span className="card__label">Step 1</span>
             <h2>Create organization</h2>
             <p>
-              Super Admin stays outside tenant membership. After creation, use
-              Members to assign the first Organization Admin.
+              Super Admin stays outside tenant membership. Create the tenant,
+              then use the standard member invitation flow for onboarding.
             </p>
           </div>
           <Input
@@ -269,9 +253,9 @@ export function PlatformOrganizations() {
           <div className="onboarding-note">
             <strong>Next steps after create</strong>
             <ol>
-              <li>Select the new workspace.</li>
-              <li>Add or invite the first Organization Admin.</li>
-              <li>Review subscription and usage limits.</li>
+              <li>Select the new organization.</li>
+              <li>Open Members from the organization navigation.</li>
+              <li>Invite users with a name, email, and exactly one role.</li>
             </ol>
           </div>
         </form>
@@ -333,7 +317,7 @@ export function PlatformOrganizations() {
             <section className="empty-state empty-state--compact">
               <div>
                 <h2>No organizations yet</h2>
-                <p>Create the first tenant workspace to begin onboarding.</p>
+                <p>Create the first tenant organization to begin onboarding.</p>
               </div>
             </section>
           )}

@@ -49,12 +49,12 @@ export function Login() {
     <AuthLayout
       artwork={
         <aside
-          aria-label="AI-powered document processing"
+          aria-label="DOCUMIND document management"
           className="login-visual"
         >
           <div className="login-visual__copy">
-            <p className="eyebrow">Intelligent workspace</p>
-            <h2>Turn every document into a confident decision.</h2>
+            <p className="eyebrow">DOCUMIND</p>
+            <h2>Secure document management for professional teams.</h2>
           </div>
           <img
             alt=""
@@ -62,20 +62,13 @@ export function Login() {
             src={loginDocumentArtwork}
           />
           <div className="login-visual__status">
-            <span aria-hidden="true">✓</span>
-            Secure document verification
+            <span aria-hidden="true">OK</span>
+            Secure invitation access
           </div>
         </aside>
       }
-      description="Use your verified account to continue."
-      footer={
-        <>
-          New here?{' '}
-          <Link state={location.state} to="/register">
-            Create an account
-          </Link>
-        </>
-      }
+      description="Use your company-invited account to continue."
+      footer={<>Access is invitation-only. Ask an administrator for an invite.</>}
       title="Welcome back"
     >
       {message && (

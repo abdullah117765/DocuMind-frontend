@@ -22,13 +22,6 @@ function getDeviceName() {
   return `${getBrowserName()} on ${platform}`.slice(0, 120)
 }
 
-export async function registerAccount(credentials) {
-  return apiRequest('/auth/register', {
-    method: 'POST',
-    body: credentials,
-  })
-}
-
 export async function login(credentials) {
   const response = await csrfRequest('/auth/login', {
     method: 'POST',
