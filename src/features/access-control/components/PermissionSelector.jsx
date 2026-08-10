@@ -53,7 +53,7 @@ export function PermissionSelector({
   }
 
   if (permissions.length === 0) {
-    return <p className="supporting-copy">No active permissions are available.</p>
+    return <p className="supporting-copy">No access options are available.</p>
   }
 
   return (
@@ -93,8 +93,7 @@ export function PermissionSelector({
                   />
                   <span>
                     <strong>{permission.name}</strong>
-                    <small>{permission.description ?? permission.code}</small>
-                    <code>{permission.code}</code>
+                    <small>{permission.description ?? 'No description available.'}</small>
                   </span>
                 </label>
               ))}

@@ -1,3 +1,5 @@
+import { getFriendlyErrorMessage } from './errorMessages.js'
+
 export class ApiError extends Error {
   constructor(message, code, details = null) {
     super(message)
@@ -7,9 +9,15 @@ export class ApiError extends Error {
   }
 
   static fromResponse(response, payload = {}) {
+    const code = payload.code ?? response.status
+    const rawMessage = payload.message ?? response.statusText ?? 'Request failed'
+
     return new ApiError(
-      payload.message ?? response.statusText ?? 'Request failed',
-      payload.code ?? response.status,
+      getFriendlyErrorMessage(
+        { code, message: rawMessage },
+        'Something went wrong. Please try again.',
+      ),
+      code,
       payload.details ?? null,
     )
   }

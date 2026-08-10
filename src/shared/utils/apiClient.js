@@ -1,7 +1,16 @@
 import { ApiError } from './apiError.js'
+import { emitNetworkError } from '../networkEvents.js'
 import { API_BASE_URL } from '../constants/env.js'
 
 let authenticationRecovery = null
+
+function isBrowserOffline() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
+}
+
+function isAbortError(error) {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
 
 export function setAuthenticationRecovery(recover) {
   authenticationRecovery = recover
@@ -41,22 +50,47 @@ export async function apiRequest(path, options = {}) {
 }
 
 async function performRequest(path, options = {}) {
+  if (isBrowserOffline()) {
+    throw new ApiError(
+      'Internet disconnected. Please reconnect and try again.',
+      'NETWORK_OFFLINE',
+    )
+  }
+
   const hasBody = options.body !== undefined
   const isFormData =
     typeof FormData !== 'undefined' && options.body instanceof FormData
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    credentials: 'include',
-    headers: {
-      Accept: 'application/json',
-      ...(hasBody && !isFormData ? { 'Content-Type': 'application/json' } : {}),
-      ...options.headers,
-    },
-    body:
-      hasBody && !isFormData && typeof options.body !== 'string'
-        ? JSON.stringify(options.body)
-        : options.body,
-  })
+  let response
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json',
+        ...(hasBody && !isFormData ? { 'Content-Type': 'application/json' } : {}),
+        ...options.headers,
+      },
+      body:
+        hasBody && !isFormData && typeof options.body !== 'string'
+          ? JSON.stringify(options.body)
+          : options.body,
+    })
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new ApiError('Request was cancelled.', 'REQUEST_ABORTED')
+    }
+
+    const message = isBrowserOffline()
+      ? 'Internet disconnected. Please reconnect and try again.'
+      : 'Unable to reach the server. Please check your connection and try again.'
+
+    emitNetworkError(message)
+    throw new ApiError(
+      message,
+      isBrowserOffline() ? 'NETWORK_OFFLINE' : 'NETWORK_ERROR',
+    )
+  }
 
   const payload = await parseJson(response)
 

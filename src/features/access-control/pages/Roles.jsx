@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
+import { Input } from '../../../shared/components/Input/Input.jsx'
+import { ListPagination } from '../../../shared/components/ListPagination.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
 import { Modal } from '../../../shared/components/Modal/Modal.jsx'
 import { useNotifications } from '../../../shared/useNotifications.js'
+import { getFriendlyErrorMessage } from '../../../shared/utils/errorMessages.js'
 import { isSuperAdminAccess } from '../../../shared/utils/accessDisplay.js'
 import { useAuth } from '../../auth/hooks/useAuth.js'
 import { RoleForm } from '../components/RoleForm.jsx'
@@ -28,6 +31,8 @@ function groupPermissions(permissions) {
   }, {})
 }
 
+const DEFAULT_PAGE_SIZE = 10
+
 function RolesContent() {
   const { refreshAccess, selectedOrganization } = useAccessControl()
   const notifications = useNotifications()
@@ -37,29 +42,59 @@ function RolesContent() {
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [filters, setFilters] = useState({
+    search: '',
+    type: 'all',
+  })
   const [notice, setNotice] = useState('')
+  const [allRoles, setAllRoles] = useState([])
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const [pagination, setPagination] = useState(null)
   const [permissions, setPermissions] = useState([])
   const [roleToDelete, setRoleToDelete] = useState(null)
   const [roles, setRoles] = useState([])
+
+  const updateFilters = useCallback((updater) => {
+    setPage(1)
+    setFilters((current) => ({ ...current, ...updater }))
+  }, [])
 
   const loadData = useCallback(async () => {
     setActionError(null)
     setIsLoading(true)
 
     try {
-      const [nextPermissions, nextRoles] = await Promise.all([
+      const [nextPermissions, rolePage, allRoleData] = await Promise.all([
         getPermissions(organizationId),
-        getRoles(organizationId),
+        getRoles(organizationId, {
+          page,
+          pageSize,
+          search: filters.search.trim(),
+          type: filters.type,
+        }),
+        getRoles(organizationId, { page: 1, pageSize: 100 }),
       ])
 
+      if (
+        rolePage.pagination &&
+        rolePage.pagination.total > 0 &&
+        rolePage.pagination.page > rolePage.pagination.pageCount
+      ) {
+        setPage(rolePage.pagination.pageCount)
+        return
+      }
+
       setPermissions(nextPermissions)
-      setRoles(nextRoles)
+      setRoles(rolePage.roles ?? [])
+      setAllRoles(allRoleData.roles ?? [])
+      setPagination(rolePage.pagination ?? null)
     } catch (error) {
       setActionError(error)
     } finally {
       setIsLoading(false)
     }
-  }, [organizationId])
+  }, [filters.search, filters.type, organizationId, page, pageSize])
 
   useEffect(() => {
     setIsFormOpen(false)
@@ -118,7 +153,7 @@ function RolesContent() {
       await refreshAccess().catch(() => {})
     } catch (error) {
       setActionError(error)
-      notifications.error(error.message)
+      notifications.error(getFriendlyErrorMessage(error))
     } finally {
       setIsSaving(false)
     }
@@ -139,7 +174,7 @@ function RolesContent() {
       await refreshAccess().catch(() => {})
     } catch (error) {
       setActionError(error)
-      notifications.error(error.message)
+      notifications.error(getFriendlyErrorMessage(error))
     } finally {
       setIsSaving(false)
     }
@@ -148,7 +183,7 @@ function RolesContent() {
   if (isLoading) {
     return (
       <main className="page">
-        <Loader label="Loading roles and permissions…" />
+        <Loader label="Loading access roles…" />
       </main>
     )
   }
@@ -158,25 +193,46 @@ function RolesContent() {
       <header className="page-header">
         <div>
           <p className="eyebrow">Access control</p>
-          <h1>Roles and permissions</h1>
+          <h1>Roles</h1>
           <p>
             Manage custom roles for {selectedOrganization.organization.name}.
-            System roles stay read-only and update through backend policy.
+            Built-in roles stay read-only so core access remains protected.
           </p>
         </div>
         <Button onClick={openCreateRole}>Create custom role</Button>
       </header>
 
       {notice && <Alert tone="success">{notice}</Alert>}
-      {actionError && <Alert>{actionError.message}</Alert>}
+      {actionError && <Alert>{getFriendlyErrorMessage(actionError)}</Alert>}
 
       <section className="section-block">
         <div className="section-heading">
           <div>
             <p className="eyebrow">Role directory</p>
-            <h2>{roles.length} available roles</h2>
+            <h2>{pagination?.total ?? roles.length} available roles</h2>
           </div>
         </div>
+
+        <section className="card filter-bar">
+            <Input
+              label="Search roles"
+              onChange={(event) => updateFilters({ search: event.target.value })}
+              placeholder="role or access area..."
+              value={filters.search}
+            />
+          <label className="field">
+            <span className="field__label">Type</span>
+            <select
+              onChange={(event) => updateFilters({ type: event.target.value })}
+              value={filters.type}
+            >
+              <option value="all">All roles</option>
+              <option value="system">System roles</option>
+              <option value="custom">Custom roles</option>
+            </select>
+          </label>
+        </section>
+
         <div className="role-grid">
           {roles.map((role) => {
             const assignedToCurrentUser = selfAssignedRoleIds.has(role.id)
@@ -219,16 +275,16 @@ function RolesContent() {
                     </span>
                   ))
                 ) : (
-                  <span className="muted-copy">No permissions assigned</span>
+                  <span className="muted-copy">No access selected</span>
                 )}
               </div>
               <footer className="role-card__footer">
                 <span className="muted-copy">
-                  {role.permissions.length} permission
+                  {role.permissions.length} access item
                   {role.permissions.length === 1 ? '' : 's'}
                 </span>
                 {role.isSystem ? (
-                  <span className="read-only-note">Managed by the system</span>
+                  <span className="read-only-note">Built-in role</span>
                 ) : assignedToCurrentUser ? (
                   <span className="read-only-note">
                     Locked because it affects your own access
@@ -251,16 +307,26 @@ function RolesContent() {
             )
           })}
         </div>
+
+        <ListPagination
+          label="Role pagination"
+          onPageChange={setPage}
+          onPageSizeChange={(nextPageSize) => {
+            setPageSize(nextPageSize)
+            setPage(1)
+          }}
+          pageSize={pageSize}
+          pagination={pagination}
+        />
       </section>
 
       <section className="section-block">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Dynamic catalog</p>
-            <h2>Permission reference</h2>
+            <p className="eyebrow">Available access</p>
+            <h2>Access reference</h2>
             <p>
-              This catalog is returned by the backend; new active permissions
-              appear here without frontend role-name changes.
+              Use this reference to understand what each role can allow.
             </p>
           </div>
         </div>
@@ -275,7 +341,7 @@ function RolesContent() {
                 </header>
                 <div>
                   {categoryPermissions.map((permission) => {
-                    const roleCount = roles.filter((role) =>
+                    const roleCount = allRoles.filter((role) =>
                       role.permissions.some(({ code }) => code === permission.code),
                     ).length
 
@@ -284,7 +350,6 @@ function RolesContent() {
                         <div>
                           <strong>{permission.name}</strong>
                           <p>{permission.description}</p>
-                          <code>{permission.code}</code>
                         </div>
                         <span>
                           {roleCount} role{roleCount === 1 ? '' : 's'}
@@ -303,10 +368,10 @@ function RolesContent() {
         onClose={() => !isSaving && setIsFormOpen(false)}
         title={editingRole ? `Edit ${editingRole.name}` : 'Create custom role'}
       >
-        {actionError && <Alert>{actionError.message}</Alert>}
+        {actionError && <Alert>{getFriendlyErrorMessage(actionError)}</Alert>}
         {isFormOpen && (
           <RoleForm
-            existingRoleNames={roles.map((role) => role.name)}
+            existingRoleNames={allRoles.map((role) => role.name)}
             isSaving={isSaving}
             key={editingRole?.id ?? 'new-role'}
             onCancel={() => setIsFormOpen(false)}
@@ -322,9 +387,9 @@ function RolesContent() {
         onClose={() => !isSaving && setRoleToDelete(null)}
         title="Delete custom role?"
       >
-        {actionError && <Alert>{actionError.message}</Alert>}
+        {actionError && <Alert>{getFriendlyErrorMessage(actionError)}</Alert>}
         <p>
-          Deleting <strong>{roleToDelete?.name}</strong> deactivates the role
+          Deleting <strong>{roleToDelete?.name}</strong> removes the role
           and removes it from {roleToDelete?.assignedMembersCount ?? 0} assigned
           member
           {roleToDelete?.assignedMembersCount === 1 ? '' : 's'}.

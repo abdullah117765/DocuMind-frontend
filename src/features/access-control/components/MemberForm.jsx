@@ -163,7 +163,7 @@ export function MemberForm({
           ) : (
             <p className="muted-copy">
               No assignable roles are available. Ask the Super Admin to check
-              role setup or run the backend seed.
+              role setup.
             </p>
           )}
         </div>

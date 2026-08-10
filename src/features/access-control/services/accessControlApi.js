@@ -6,6 +6,16 @@ function organizationPath(organizationId, suffix = '') {
   return `/organizations/${encodeURIComponent(organizationId)}${suffix}`
 }
 
+function queryString(params = {}) {
+  const query = new URLSearchParams(
+    Object.entries(params).filter(
+      ([, value]) => value !== undefined && value !== null && value !== '',
+    ),
+  )
+
+  return query.toString() ? `?${query}` : ''
+}
+
 export async function getCurrentAccess() {
   const response = await apiRequest('/access-control/me', {
     cache: 'no-store',
@@ -27,13 +37,13 @@ export async function getSelectedOrganizationAccess(organizationId) {
   return getResponseData(response).organizationAccess
 }
 
-export async function getPlatformOrganizations() {
-  const response = await apiRequest('/platform/organizations', {
+export async function getPlatformOrganizations(params = {}) {
+  const response = await apiRequest(`/platform/organizations${queryString(params)}`, {
     cache: 'no-store',
     requiresAuth: true,
   })
 
-  return getResponseData(response).organizations
+  return getResponseData(response)
 }
 
 export async function createOrganization(organization) {
@@ -46,16 +56,28 @@ export async function createOrganization(organization) {
   return getResponseData(response).organization
 }
 
-export async function getOrganizationInvites(organizationId) {
+export async function getOrganizationInvites(organizationId, params = {}) {
   const response = await apiRequest(
-    organizationPath(organizationId, '/invites'),
+    organizationPath(organizationId, `/invites${queryString(params)}`),
     {
       cache: 'no-store',
       requiresAuth: true,
     },
   )
 
-  return getResponseData(response).invites
+  return getResponseData(response)
+}
+
+export async function getOrganizationJoinRequests(organizationId, params = {}) {
+  const response = await apiRequest(
+    organizationPath(organizationId, `/join-requests${queryString(params)}`),
+    {
+      cache: 'no-store',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).joinRequests
 }
 
 export async function inviteOrganizationMember(organizationId, invite) {
@@ -86,10 +108,15 @@ export async function resendOrganizationInvite(organizationId, inviteId) {
   return getResponseData(response).invite
 }
 
-export function revokeOrganizationInvite(organizationId, inviteId) {
+export function revokeOrganizationInvite(
+  organizationId,
+  inviteId,
+  revocationReason,
+) {
   return csrfRequest(
     organizationPath(organizationId, `/invites/${encodeURIComponent(inviteId)}`),
     {
+      body: { revocationReason },
       method: 'DELETE',
       requiresAuth: true,
     },
@@ -145,13 +172,13 @@ export async function getPermissions(organizationId) {
   return getResponseData(response).permissions
 }
 
-export async function getRoles(organizationId) {
-  const response = await apiRequest(organizationPath(organizationId, '/roles'), {
+export async function getRoles(organizationId, params = {}) {
+  const response = await apiRequest(organizationPath(organizationId, `/roles${queryString(params)}`), {
     cache: 'no-store',
     requiresAuth: true,
   })
 
-  return getResponseData(response).roles
+  return getResponseData(response)
 }
 
 export async function createRole(organizationId, role) {
@@ -216,16 +243,31 @@ export function deleteRole(organizationId, roleId) {
   )
 }
 
-export async function getMembers(organizationId) {
+export async function getMembers(organizationId, params = {}) {
   const response = await apiRequest(
-    organizationPath(organizationId, '/members'),
+    organizationPath(organizationId, `/members${queryString(params)}`),
     {
       cache: 'no-store',
       requiresAuth: true,
     },
   )
 
-  return getResponseData(response).members
+  return getResponseData(response)
+}
+
+export async function getOrganizationPeopleAccess(organizationId, params = {}) {
+  const response = await apiRequest(
+    organizationPath(
+      organizationId,
+      `/members/people-access${queryString(params)}`,
+    ),
+    {
+      cache: 'no-store',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response)
 }
 
 export async function replaceMemberRoles(
@@ -279,4 +321,44 @@ export function removeMember(organizationId, membershipId) {
       requiresAuth: true,
     },
   )
+}
+
+export async function acceptOrganizationJoinRequest(
+  organizationId,
+  requestId,
+  roleIds,
+) {
+  const response = await csrfRequest(
+    organizationPath(
+      organizationId,
+      `/join-requests/${encodeURIComponent(requestId)}/accept`,
+    ),
+    {
+      body: { roleIds },
+      method: 'PATCH',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).joinRequest
+}
+
+export async function rejectOrganizationJoinRequest(
+  organizationId,
+  requestId,
+  rejectionReason,
+) {
+  const response = await csrfRequest(
+    organizationPath(
+      organizationId,
+      `/join-requests/${encodeURIComponent(requestId)}/reject`,
+    ),
+    {
+      body: { rejectionReason },
+      method: 'PATCH',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).joinRequest
 }

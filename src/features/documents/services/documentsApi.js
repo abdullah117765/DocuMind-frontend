@@ -56,6 +56,13 @@ export function getStagedFileContentUrl(organizationId, sessionId, fileId) {
   )}`
 }
 
+export function getUploadJobEventsUrl(organizationId, jobId) {
+  return `${API_BASE_URL}${organizationDocumentPath(
+    organizationId,
+    `/upload-jobs/${encode(jobId)}/events`,
+  )}`
+}
+
 export function getPlatformDocumentContentUrl(documentId) {
   return `${API_BASE_URL}${platformDocumentPath(`/${encode(documentId)}/content`)}`
 }
@@ -223,7 +230,7 @@ export async function commitUploadSession(organizationId, sessionId) {
     },
   )
 
-  return getResponseData(response)
+  return getResponseData(response).uploadJob
 }
 
 export async function uploadDocumentVersion(organizationId, documentId, file) {

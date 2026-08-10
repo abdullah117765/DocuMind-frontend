@@ -2,9 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
+import { ListPagination } from '../../../shared/components/ListPagination.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
+import { Modal } from '../../../shared/components/Modal/Modal.jsx'
 import { RefreshIconButton } from '../../../shared/components/RefreshIconButton.jsx'
 import { useNotifications } from '../../../shared/useNotifications.js'
+import { getFriendlyErrorMessage } from '../../../shared/utils/errorMessages.js'
 import { useAccessControl } from '../hooks/useAccessControl.js'
 import {
   createOrganization,
@@ -13,6 +16,7 @@ import {
 
 const PLATFORM_ORGANIZATION_PERMISSION = 'platform.organizations.manage'
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+const DEFAULT_PAGE_SIZE = 10
 
 function normalizeName(value) {
   return value.trim().replace(/\s+/g, ' ')
@@ -55,13 +59,51 @@ function formatDate(value) {
   }).format(new Date(value))
 }
 
-function OrganizationSetupActions({ organization, onSelect }) {
+function OrganizationIcon({ name, size = 16 }) {
+  const commonProps = {
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    strokeWidth: 2,
+  }
+
   return (
-    <div className="tenant-setup-actions">
-      <Button onClick={() => onSelect(organization.id)} variant="secondary">
-        Select organization
-      </Button>
-    </div>
+    <svg
+      aria-hidden="true"
+      height={size}
+      viewBox="0 0 24 24"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {name === 'building' && (
+        <>
+          <path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16" {...commonProps} />
+          <path d="M9 21v-4h2v4M8 7h.01M12 7h.01M8 11h.01M12 11h.01M18 9h1a1 1 0 0 1 1 1v11" {...commonProps} />
+        </>
+      )}
+      {name === 'open' && (
+        <>
+          <path d="M7 17 17 7M8 7h9v9" {...commonProps} />
+          <path d="M5 5h6M5 5v14h14v-6" {...commonProps} />
+        </>
+      )}
+    </svg>
+  )
+}
+
+function OrganizationActionIconButton({ label, onClick }) {
+  return (
+    <button
+      aria-label={label}
+      className="access-icon-button"
+      data-tooltip={label}
+      onClick={onClick}
+      title={label}
+      type="button"
+    >
+      <OrganizationIcon name="open" />
+    </button>
   )
 }
 
@@ -76,21 +118,43 @@ export function PlatformOrganizations() {
   const [actionError, setActionError] = useState(null)
   const [form, setForm] = useState({ name: '', slug: '' })
   const [formErrors, setFormErrors] = useState({})
+  const [filters, setFilters] = useState({
+    search: '',
+    sort: 'name',
+    status: '',
+  })
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [notice, setNotice] = useState('')
   const [organizations, setOrganizations] = useState([])
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const [pagination, setPagination] = useState(null)
   const totalMembers = organizations.reduce(
     (total, organization) => total + (organization.memberCount ?? 0),
     0,
   )
-  const latestOrganization = [...organizations].sort(
-    (left, right) => new Date(right.createdAt) - new Date(left.createdAt),
-  )[0]
 
   const canManageOrganizations = hasPlatformPermission(
     PLATFORM_ORGANIZATION_PERMISSION,
   )
+
+  function resetCreateForm() {
+    setForm({ name: '', slug: '' })
+    setFormErrors({})
+  }
+
+  function closeCreateModal() {
+    if (isSaving) return
+    resetCreateForm()
+    setIsCreateOpen(false)
+  }
+
+  const updateFilters = useCallback((updater) => {
+    setPage(1)
+    setFilters((current) => ({ ...current, ...updater }))
+  }, [])
 
   const loadOrganizations = useCallback(async () => {
     if (!canManageOrganizations) {
@@ -102,16 +166,45 @@ export function PlatformOrganizations() {
     setIsLoading(true)
 
     try {
-      setOrganizations(await getPlatformOrganizations())
+      const data = await getPlatformOrganizations({
+        page,
+        pageSize,
+        search: filters.search.trim(),
+        sort: filters.sort,
+        status: filters.status,
+      })
+
+      if (
+        data.pagination &&
+        data.pagination.total > 0 &&
+        data.pagination.page > data.pagination.pageCount
+      ) {
+        setPage(data.pagination.pageCount)
+        return
+      }
+
+      setOrganizations(data.organizations ?? [])
+      setPagination(data.pagination ?? null)
     } catch (error) {
       setActionError(error)
     } finally {
       setIsLoading(false)
     }
-  }, [canManageOrganizations])
+  }, [
+    canManageOrganizations,
+    filters.search,
+    filters.sort,
+    filters.status,
+    page,
+    pageSize,
+  ])
 
   useEffect(() => {
-    void loadOrganizations()
+    const handle = window.setTimeout(() => {
+      void loadOrganizations()
+    }, 250)
+
+    return () => window.clearTimeout(handle)
   }, [loadOrganizations])
 
   async function handleSubmit(event) {
@@ -142,7 +235,8 @@ export function PlatformOrganizations() {
 
       setNotice(`${organization.name} was created.`)
       notifications.success(`${organization.name} was created.`)
-      setForm({ name: '', slug: '' })
+      resetCreateForm()
+      setIsCreateOpen(false)
       await Promise.all([
         loadOrganizations(),
         refreshAccess().catch(() => null),
@@ -150,7 +244,7 @@ export function PlatformOrganizations() {
       setSelectedOrganizationId(organization.id)
     } catch (error) {
       setActionError(error)
-      notifications.error(error.message)
+      notifications.error(getFriendlyErrorMessage(error))
     } finally {
       setIsSaving(false)
     }
@@ -159,7 +253,7 @@ export function PlatformOrganizations() {
   if (status === 'loading' || status === 'idle') {
     return (
       <main className="page">
-        <Loader label="Checking platform permissions..." />
+        <Loader label="Checking Super Admin access..." />
       </main>
     )
   }
@@ -169,11 +263,10 @@ export function PlatformOrganizations() {
       <main className="page">
         <section className="empty-state">
           <div>
-            <p className="eyebrow">Platform permission required</p>
+            <p className="eyebrow">Super Admin access required</p>
             <h1>Organizations are restricted</h1>
             <p>
-              Only Super Admin accounts can create and manage tenant
-              organizations.
+              Only the Super Admin can create and manage organizations.
             </p>
           </div>
         </section>
@@ -188,15 +281,20 @@ export function PlatformOrganizations() {
           <p className="eyebrow">Platform administration</p>
           <h1>Organizations</h1>
           <p>
-            Create tenant organizations and keep the platform catalog in one
+            Create organizations and keep the organization directory in one
             controlled place.
           </p>
         </div>
-        <RefreshIconButton
-          disabled={isLoading}
-          label="Refresh organizations"
-          onClick={() => void loadOrganizations()}
-        />
+        <div className="inline-actions">
+          <RefreshIconButton
+            disabled={isLoading}
+            label="Refresh organizations"
+            onClick={() => void loadOrganizations()}
+          />
+          <Button onClick={() => setIsCreateOpen(true)}>
+            Create organization
+          </Button>
+        </div>
       </header>
 
       {notice && (
@@ -206,18 +304,157 @@ export function PlatformOrganizations() {
       )}
       {actionError && (
         <Alert onDismiss={() => setActionError(null)}>
-          {actionError.message}
+          {getFriendlyErrorMessage(actionError)}
         </Alert>
       )}
 
       <section className="platform-organization-layout">
-        <form className="card form" onSubmit={handleSubmit}>
+        <section className="card">
+          <div className="filter-bar">
+            <Input
+              label="Search organizations"
+              onChange={(event) => updateFilters({ search: event.target.value })}
+              placeholder="name or URL name..."
+              value={filters.search}
+            />
+            <label className="field">
+              <span className="field__label">Status</span>
+              <select
+                onChange={(event) => updateFilters({ status: event.target.value })}
+                value={filters.status}
+              >
+                <option value="">All statuses</option>
+                <option value="ACTIVE">Active</option>
+                <option value="SUSPENDED">Suspended</option>
+              </select>
+            </label>
+            <label className="field">
+              <span className="field__label">Sort</span>
+              <select
+                onChange={(event) => updateFilters({ sort: event.target.value })}
+                value={filters.sort}
+              >
+                <option value="name">Name</option>
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="section-heading">
+            <div>
+              <span className="card__label">Organization directory</span>
+              <h2>{pagination?.total ?? organizations.length} organizations</h2>
+            </div>
+          </div>
+
+          <div className="metric-grid metric-grid--compact">
+            <article>
+              <span>Organizations shown</span>
+              <strong>{organizations.length}</strong>
+            </article>
+            <article>
+              <span>Members shown</span>
+              <strong>{totalMembers}</strong>
+            </article>
+            <article>
+              <span>Total matches</span>
+              <strong>{pagination?.total ?? organizations.length}</strong>
+            </article>
+          </div>
+
+          {isLoading ? (
+            <Loader label="Loading organizations..." />
+          ) : organizations.length ? (
+            <div className="organization-table" role="table">
+              <div className="organization-table__row organization-table__row--head" role="row">
+                <span role="columnheader">Name</span>
+                <span role="columnheader">URL name</span>
+                <span role="columnheader">Status</span>
+                <span role="columnheader">Members</span>
+                <span role="columnheader">Created</span>
+                <span role="columnheader">Actions</span>
+              </div>
+              {organizations.map((organization) => (
+                <div
+                  className="organization-table__row"
+                  key={organization.id}
+                  role="row"
+                >
+                  <span data-label="Name" role="cell">
+                    <span className="organization-name-cell">
+                      <span aria-hidden="true" className="organization-avatar">
+                        <OrganizationIcon name="building" />
+                      </span>
+                      <span>
+                        <strong title={organization.name}>
+                          {organization.name}
+                        </strong>
+                        <small title={organization.slug}>{organization.slug}</small>
+                      </span>
+                    </span>
+                  </span>
+                  <span data-label="URL name" role="cell">
+                    <code title={organization.slug}>{organization.slug}</code>
+                  </span>
+                  <span data-label="Status" role="cell">
+                    <span className={`status-badge status-badge--${organization.status === 'ACTIVE' ? 'success' : 'warning'}`}>
+                      {organization.status ?? 'ACTIVE'}
+                    </span>
+                  </span>
+                  <span data-label="Members" role="cell">
+                    {organization.memberCount ?? 0}
+                  </span>
+                  <span data-label="Created" role="cell">
+                    {formatDate(organization.createdAt)}
+                  </span>
+                  <span className="organization-actions" data-label="Actions" role="cell">
+                    <OrganizationActionIconButton
+                      label="Open organization"
+                      onClick={() => setSelectedOrganizationId(organization.id)}
+                    />
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <section className="empty-state empty-state--compact">
+              <div>
+                <h2>No organizations yet</h2>
+                <p>Create the first organization to begin onboarding.</p>
+              </div>
+            </section>
+          )}
+
+          <ListPagination
+            label="Organization pagination"
+            onPageChange={setPage}
+            onPageSizeChange={(nextPageSize) => {
+              setPageSize(nextPageSize)
+              setPage(1)
+            }}
+            pageSize={pageSize}
+            pagination={pagination}
+          />
+        </section>
+      </section>
+
+      <Modal
+        isOpen={isCreateOpen}
+        onClose={closeCreateModal}
+        title="Create organization"
+      >
+        {actionError && (
+          <Alert onDismiss={() => setActionError(null)}>
+            {getFriendlyErrorMessage(actionError)}
+          </Alert>
+        )}
+        <form className="form" onSubmit={handleSubmit}>
           <div>
-            <span className="card__label">Step 1</span>
-            <h2>Create organization</h2>
+            <span className="card__label">Organization setup</span>
             <p>
-              Super Admin stays outside tenant membership. Create the tenant,
-              then use the standard member invitation flow for onboarding.
+              Create the organization profile first. Super Admin remains platform-only;
+              users are onboarded later through People access invitations.
             </p>
           </div>
           <Input
@@ -235,8 +472,8 @@ export function PlatformOrganizations() {
           />
           <Input
             error={formErrors.slug}
-            hint="Optional. Leave blank to generate it from the name."
-            label="Slug"
+            hint="Optional. Leave blank and we will create it from the organization name."
+            label="URL name"
             maxLength={100}
             onChange={(event) => {
               setForm((current) => ({ ...current, slug: event.target.value }))
@@ -245,84 +482,24 @@ export function PlatformOrganizations() {
             placeholder="acme-finance"
             value={form.slug}
           />
+          <div className="onboarding-note">
+            <strong>After creating</strong>
+            <ol>
+              <li>Select the organization from the directory.</li>
+              <li>Open People from the organization navigation.</li>
+              <li>Invite users with a name, email, and exactly one role.</li>
+            </ol>
+          </div>
           <div className="form-actions">
+            <Button disabled={isSaving} onClick={closeCreateModal} variant="secondary">
+              Cancel
+            </Button>
             <Button disabled={isSaving} type="submit">
               {isSaving ? 'Creating...' : 'Create organization'}
             </Button>
           </div>
-          <div className="onboarding-note">
-            <strong>Next steps after create</strong>
-            <ol>
-              <li>Select the new organization.</li>
-              <li>Open Members from the organization navigation.</li>
-              <li>Invite users with a name, email, and exactly one role.</li>
-            </ol>
-          </div>
         </form>
-
-        <section className="card">
-          <div className="section-heading">
-            <div>
-              <span className="card__label">Tenant catalog</span>
-              <h2>{organizations.length} organizations</h2>
-            </div>
-          </div>
-
-          <div className="metric-grid metric-grid--compact">
-            <article>
-              <span>Total tenants</span>
-              <strong>{organizations.length}</strong>
-            </article>
-            <article>
-              <span>Total members</span>
-              <strong>{totalMembers}</strong>
-            </article>
-            <article>
-              <span>Latest tenant</span>
-              <strong>{latestOrganization?.name ?? 'None yet'}</strong>
-            </article>
-          </div>
-
-          {isLoading ? (
-            <Loader label="Loading organizations..." />
-          ) : organizations.length ? (
-            <div className="organization-table" role="table">
-              <div className="organization-table__row organization-table__row--head" role="row">
-                <span role="columnheader">Name</span>
-                <span role="columnheader">Slug</span>
-                <span role="columnheader">Members</span>
-                <span role="columnheader">Created</span>
-                <span role="columnheader">Setup</span>
-              </div>
-              {organizations.map((organization) => (
-                <div
-                  className="organization-table__row"
-                  key={organization.id}
-                  role="row"
-                >
-                  <span role="cell">{organization.name}</span>
-                  <code role="cell">{organization.slug}</code>
-                  <span role="cell">{organization.memberCount}</span>
-                  <span role="cell">{formatDate(organization.createdAt)}</span>
-                  <span role="cell">
-                    <OrganizationSetupActions
-                      onSelect={setSelectedOrganizationId}
-                      organization={organization}
-                    />
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <section className="empty-state empty-state--compact">
-              <div>
-                <h2>No organizations yet</h2>
-                <p>Create the first tenant organization to begin onboarding.</p>
-              </div>
-            </section>
-          )}
-        </section>
-      </section>
+      </Modal>
     </main>
   )
 }

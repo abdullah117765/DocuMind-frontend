@@ -139,7 +139,6 @@ export function AuthenticatedLayout({ children }) {
 
   const organizations = access?.organizations ?? []
   const isSuperAdmin = isSuperAdminAccess(user, access)
-  const canSwitchOrganizations = isSuperAdmin || organizations.length > 1
   const displayName = getDisplayName(user)
   const canManageMembers = hasPermission('members.manage')
   const canManageRoles = isSuperAdmin
@@ -162,11 +161,15 @@ export function AuthenticatedLayout({ children }) {
   const currentRoleName = getPrimaryRoleName(currentRoles)
   const canReadDocuments = hasPermission('documents.read')
   const canViewTeam = canManageMembers || hasPermission('analytics.view')
+  const shouldShowOrganizationPeople = canViewTeam && !canAccessPlatformUsers
   const shouldShowSidebarOrganizationSwitcher =
-    canSwitchOrganizations && organizations.length > 0
+    organizations.length > 0
   const shouldShowOrganizationGroup =
     selectedOrganization &&
-    (canReadDocuments || canViewTeam || canManageRoles || canViewOrganizationAuditLogs)
+    (canReadDocuments ||
+      shouldShowOrganizationPeople ||
+      canManageRoles ||
+      canViewOrganizationAuditLogs)
 
   async function handleSignOut() {
     setIsSigningOut(true)
@@ -198,8 +201,8 @@ export function AuthenticatedLayout({ children }) {
           label: 'Ask Documents',
           to: '/documents/search',
         },
-        canViewTeam && {
-          label: canManageMembers ? 'Members' : 'Team',
+        shouldShowOrganizationPeople && {
+          label: canManageMembers ? 'People' : 'Team',
           to: '/organization/members',
         },
         canManageRoles && { label: 'Roles', to: '/organization/roles' },
@@ -215,7 +218,7 @@ export function AuthenticatedLayout({ children }) {
           to: '/platform/organizations',
         },
         canAccessPlatformUsers && {
-          label: 'Platform Users',
+          label: 'People',
           to: '/platform/users',
         },
         canAccessPlatformDocuments && {
@@ -225,13 +228,6 @@ export function AuthenticatedLayout({ children }) {
         canAccessAuditLogs && { label: 'Audit Logs', to: '/audit-logs' },
       ].filter(Boolean),
       label: 'Platform',
-    },
-    {
-      items: [
-        { label: 'Profile', to: '/account/profile' },
-        { label: 'Active devices', to: '/account/sessions' },
-      ],
-      label: 'Account',
     },
   ].filter((group) => group && group.items.length > 0)
   const navigationItems = navigationGroups.flatMap((group) => group.items)
@@ -253,6 +249,17 @@ export function AuthenticatedLayout({ children }) {
           </Link>
         </div>
 
+        {shouldShowSidebarOrganizationSwitcher && (
+          <section className="sidebar-workspace-panel" aria-label="Workspace">
+            <OrganizationSwitcher />
+            {currentRoleName && (
+              <div className="sidebar-workspace-meta">
+                <span className="sidebar-role-badge">{currentRoleName}</span>
+              </div>
+            )}
+          </section>
+        )}
+
         <nav aria-label="Primary navigation" className="side-nav">
           <NavItem icon="dashboard" to="/dashboard">
             Dashboard
@@ -270,9 +277,9 @@ export function AuthenticatedLayout({ children }) {
                   Ask Documents
                 </NavItem>
               )}
-              {canViewTeam && (
+              {shouldShowOrganizationPeople && (
                 <NavItem icon="users" to="/organization/members">
-                  {canManageMembers ? 'Members' : 'Team'}
+                  {canManageMembers ? 'People' : 'Team'}
                 </NavItem>
               )}
               {canManageRoles && (
@@ -297,7 +304,7 @@ export function AuthenticatedLayout({ children }) {
               )}
               {canAccessPlatformUsers && (
                 <NavItem icon="users" to="/platform/users">
-                  Platform Users
+                  People
                 </NavItem>
               )}
               {canAccessPlatformDocuments && (
@@ -312,13 +319,6 @@ export function AuthenticatedLayout({ children }) {
               )}
             </>
           )}
-
-          <NavItem icon="profile" to="/account/profile">
-            Profile
-          </NavItem>
-          <NavItem icon="sessions" to="/account/sessions">
-            Active devices
-          </NavItem>
         </nav>
 
         <label className="mobile-route-select">
@@ -345,7 +345,7 @@ export function AuthenticatedLayout({ children }) {
           </select>
         </label>
 
-        <footer className="sidebar-footer">
+        <footer className="sidebar-account-panel">
           <div className="profile-menu profile-menu--sidebar">
             <button
               aria-expanded={isProfileOpen}
@@ -356,7 +356,6 @@ export function AuthenticatedLayout({ children }) {
               <span className="profile-avatar">{getInitialsFromUser(user)}</span>
               <span>
                 <strong>{displayName}</strong>
-                <small>{user.email}</small>
               </span>
             </button>
 
@@ -368,7 +367,6 @@ export function AuthenticatedLayout({ children }) {
                   </span>
                   <div>
                     <strong>{displayName}</strong>
-                    <small>{user.email}</small>
                   </div>
                 </div>
                 <Link
@@ -395,24 +393,7 @@ export function AuthenticatedLayout({ children }) {
             )}
           </div>
 
-          {shouldShowSidebarOrganizationSwitcher && (
-            <div className="sidebar-organization-switcher">
-              <OrganizationSwitcher />
-            </div>
-          )}
-
-          <div className="sidebar-footer__meta">
-            {currentRoles.length > 0 && (
-              <span className="sidebar-role-badge">{currentRoleName}</span>
-            )}
-            {selectedOrganization?.organization.name && (
-              <span className="sidebar-org-name">
-                {selectedOrganization.organization.name}
-              </span>
-            )}
-          </div>
-
-          <div className="sidebar-footer__actions">
+          <div className="sidebar-account-actions">
             <button
               className="sidebar-action"
               onClick={toggleTheme}

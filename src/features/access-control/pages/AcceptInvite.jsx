@@ -7,6 +7,7 @@ import {
 import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
+import { getFriendlyErrorMessage } from '../../../shared/utils/errorMessages.js'
 import { AuthLayout } from '../../auth/components/AuthLayout.jsx'
 import {
   normalizeEmail,
@@ -218,7 +219,12 @@ export function AcceptInvite() {
     >
       {status === 'loading' && <Button disabled>Loading invitation...</Button>}
       {status === 'error' && (
-        <Alert>{error?.message ?? 'Invitation could not be loaded.'}</Alert>
+        <Alert>
+          {getFriendlyErrorMessage(
+            error,
+            'Invitation could not be loaded. Please check the link or ask for a new invite.',
+          )}
+        </Alert>
       )}
       {preview && (
         <div className="invite-preview">
@@ -250,11 +256,16 @@ export function AcceptInvite() {
           {isPlatformAdminBlocked && (
             <Alert tone="info" title="Platform account">
               Super Admin accounts manage organizations from the platform level,
-              so they cannot accept tenant invitations.
+              so they cannot accept organization invitations.
             </Alert>
           )}
           {error && !isWrongAccount && !isPlatformAdminBlocked && (
-            <Alert>{error.message}</Alert>
+            <Alert>
+              {getFriendlyErrorMessage(
+                error,
+                'Invitation could not be completed. Please check the details and try again.',
+              )}
+            </Alert>
           )}
           {!canUseInvite ? (
             <div className="invite-account-actions">

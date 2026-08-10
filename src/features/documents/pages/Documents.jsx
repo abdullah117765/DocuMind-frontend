@@ -7,6 +7,7 @@ import { Modal } from '../../../shared/components/Modal/Modal.jsx'
 import { RefreshIconButton } from '../../../shared/components/RefreshIconButton.jsx'
 import { useNotifications } from '../../../shared/useNotifications.js'
 import { isSuperAdminAccess } from '../../../shared/utils/accessDisplay.js'
+import { emitNetworkError } from '../../../shared/networkEvents.js'
 import { useAccessControl } from '../../access-control/hooks/useAccessControl.js'
 import { useAuth } from '../../auth/hooks/useAuth.js'
 import {
@@ -18,6 +19,7 @@ import {
   getOrganizationDocumentDownloadUrl,
   getPlatformDocumentContentUrl,
   getStagedFileContentUrl,
+  getUploadJobEventsUrl,
   getZipManifest,
   listOrganizationDocuments,
   listPlatformDocuments,
@@ -50,6 +52,8 @@ const ALLOWED_EXTENSIONS = [
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 const MAX_FILES_PER_BATCH = 8
+const DEFAULT_DOCUMENT_PAGE_SIZE = 10
+const DOCUMENT_PAGE_SIZE_OPTIONS = [10, 20, 50]
 const ACCEPTED_FILE_TYPES = ALLOWED_EXTENSIONS.map(
   (extension) => `.${extension}`,
 ).join(',')
@@ -60,10 +64,23 @@ const DOCUMENT_STATUS_LABELS = {
   SOFT_DELETED_BY_USER: 'user deleted',
 }
 const HIDDEN_STAGED_FILE_STATUSES = new Set(['COMMITTED', 'REMOVED'])
-const UPDATED_RANGE_DAYS = {
-  '24h': 1,
-  '7d': 7,
-  '30d': 30,
+const UPLOAD_JOB_STATUS_LABELS = {
+  FAILED: 'failed',
+  PROCESSING: 'saving',
+  QUEUED: 'waiting',
+  SUCCEEDED: 'completed',
+}
+
+function isUploadJobTerminal(job) {
+  return job?.status === 'SUCCEEDED' || job?.status === 'FAILED'
+}
+
+function getUploadJobTone(job) {
+  if (job?.status === 'SUCCEEDED') return 'success'
+  if (job?.status === 'FAILED') return 'danger'
+  if (job?.status === 'QUEUED') return 'warning'
+
+  return 'warning'
 }
 
 function DocumentUiIcon({ name, size = 24 }) {
@@ -171,34 +188,6 @@ function formatStatus(value = '') {
   return value.replace(/_/g, ' ').toLowerCase()
 }
 
-function getUpdatedRangeCutoff(range) {
-  const days = UPDATED_RANGE_DAYS[range]
-
-  if (!days) return null
-
-  return Date.now() - days * 24 * 60 * 60 * 1000
-}
-
-function isInsideUpdatedRange(document, range) {
-  const cutoff = getUpdatedRangeCutoff(range)
-
-  if (!cutoff) return true
-  if (!document.updatedAt) return false
-
-  return new Date(document.updatedAt).getTime() >= cutoff
-}
-
-function sortDocumentsByUpdatedAt(documents, sortDirection) {
-  const direction = sortDirection === 'oldest' ? 1 : -1
-
-  return [...documents].sort((first, second) => {
-    const firstTime = first.updatedAt ? new Date(first.updatedAt).getTime() : 0
-    const secondTime = second.updatedAt ? new Date(second.updatedAt).getTime() : 0
-
-    return (firstTime - secondTime) * direction
-  })
-}
-
 function getExtension(filename = '') {
   const extension = filename.split('.').pop()?.trim().toLowerCase() ?? ''
 
@@ -234,6 +223,134 @@ function normalizeUploadSession(session) {
   return files.length ? { ...session, files } : null
 }
 
+function DocumentActionButton({ icon, label, variant = 'secondary', ...props }) {
+  return (
+    <Button
+      aria-label={label}
+      className="document-action-button"
+      data-tooltip={label}
+      title={label}
+      variant={variant}
+      {...props}
+    >
+      <DocumentUiIcon name={icon} size={15} />
+      <span className="visually-hidden">{label}</span>
+    </Button>
+  )
+}
+
+function getDocumentErrorMessage(error, fallback) {
+  const message = String(error?.message ?? error ?? '')
+  const lowerMessage = message.toLowerCase()
+  const technicalMarkers = [
+    'backend',
+    'content endpoint',
+    'conversion worker',
+    'job',
+    'libreoffice',
+    'metadata',
+    'preview metadata',
+    'processing',
+    'queue',
+    'queued',
+    'serviceunavailable',
+    'soft-delete',
+    'storage',
+    'worker',
+  ]
+
+  if (!message || technicalMarkers.some((marker) => lowerMessage.includes(marker))) {
+    return fallback
+  }
+
+  return message
+}
+
+function formatUploadStage(stage = '') {
+  const normalizedStage = String(stage).toLowerCase()
+
+  if (normalizedStage.includes('saving')) return 'Saving files'
+  if (normalizedStage.includes('cleanup')) return 'Finishing up'
+  if (normalizedStage.includes('validat')) return 'Checking files'
+  if (normalizedStage.includes('preview')) return 'Preparing previews'
+
+  return 'Working'
+}
+
+function getUploadProgressMessage(job) {
+  const fallbackByStatus = {
+    FAILED: 'We could not save these files. Please review them and try again.',
+    PROCESSING: 'Saving your files. You can keep this page open to watch progress.',
+    QUEUED: 'Your files are waiting to be saved.',
+    SUCCEEDED: 'Your files are ready.',
+  }
+
+  return getDocumentErrorMessage(
+    job?.message,
+    fallbackByStatus[job?.status] ?? 'Saving your files. This may take a moment.',
+  )
+}
+
+function PaginationControls({
+  onPageChange,
+  onPageSizeChange,
+  pageSize,
+  pagination,
+}) {
+  const total = pagination?.total ?? 0
+
+  if (!pagination || total <= 0) {
+    return null
+  }
+
+  const page = pagination.page ?? 1
+  const pageCount = Math.max(pagination.pageCount ?? 1, 1)
+  const start = (page - 1) * pageSize + 1
+  const end = Math.min(page * pageSize, total)
+
+  return (
+    <div className="pagination-bar" aria-label="Document pagination">
+      <p>
+        Showing <strong>{start}</strong>-<strong>{end}</strong> of{' '}
+        <strong>{total}</strong>
+      </p>
+
+      <div className="pagination-bar__controls">
+        <label className="pagination-bar__size">
+          <span>Rows</span>
+          <select
+            onChange={(event) => onPageSizeChange(Number(event.target.value))}
+            value={pageSize}
+          >
+            {DOCUMENT_PAGE_SIZE_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Button
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+          variant="secondary"
+        >
+          Previous
+        </Button>
+        <span className="pagination-bar__page">
+          Page {page} of {pageCount}
+        </span>
+        <Button
+          disabled={page >= pageCount}
+          onClick={() => onPageChange(page + 1)}
+          variant="secondary"
+        >
+          Next
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function isImageMime(mimeType = '') {
   return mimeType.startsWith('image/')
 }
@@ -247,8 +364,8 @@ function renderPreviewBody(preview, contentUrl, mimeType) {
     return (
       <section className="empty-state empty-state--compact">
         <div>
-          <h2>No preview data</h2>
-          <p>The file is stored, but no preview metadata was returned.</p>
+          <h2>Preview is not available</h2>
+          <p>Download the file to view it, or try uploading it again.</p>
         </div>
       </section>
     )
@@ -277,8 +394,7 @@ function renderPreviewBody(preview, contentUrl, mimeType) {
 
     return (
       <Alert tone="info">
-        This file opens in the browser preview endpoint. Use Open preview to
-        review it in a new tab.
+        This file can be opened in a new tab for review.
       </Alert>
     )
   }
@@ -326,7 +442,7 @@ function renderPreviewBody(preview, contentUrl, mimeType) {
 
   return (
     <Alert tone={preview.previewAvailable ? 'info' : 'warning'}>
-      {preview.message ?? 'Preview is not available for this file type.'}
+      {preview.message ?? 'Preview is not available for this file type. Download the file to view it.'}
     </Alert>
   )
 }
@@ -428,7 +544,7 @@ function VersionsModal({
           <section className="empty-state empty-state--compact">
             <div>
               <h2>No versions found</h2>
-              <p>The backend did not return version history for this file.</p>
+              <p>No saved versions are available for this file yet.</p>
             </div>
           </section>
         )}
@@ -469,7 +585,8 @@ function ZipReview({
           <h2>{zipReview.manifest.archiveName}</h2>
           <p>
             Select up to {MAX_FILES_PER_BATCH} safe files from the archive.
-            Unsupported, encrypted, nested, or oversized files cannot be staged.
+            Unsupported, encrypted, folder-based, or oversized files cannot be
+            added.
           </p>
         </div>
         <span
@@ -522,7 +639,7 @@ function ZipReview({
           disabled={isSaving || selectedPaths.length === 0}
           onClick={onStage}
         >
-          {isSaving ? 'Staging...' : 'Stage selected files'}
+          {isSaving ? 'Adding...' : 'Add selected files'}
         </Button>
       </div>
     </section>
@@ -535,26 +652,33 @@ function UploadSessionCard({
   onPreview,
   onRemoveFile,
   session,
+  uploadJob,
 }) {
   if (!session) return null
   const stagedFiles = getVisibleStagedFiles(session)
+  const uploadJobActive = Boolean(uploadJob && !isUploadJobTerminal(uploadJob))
 
   return (
     <section className="card document-upload-card">
       <div className="section-heading">
         <div>
           <span className="card__label">Review before saving</span>
-          <h2>Staged files ({stagedFiles.length}/{MAX_FILES_PER_BATCH})</h2>
+          <h2>Files ready to save ({stagedFiles.length}/{MAX_FILES_PER_BATCH})</h2>
           <p>
             Preview each file and remove anything incorrect before creating
-            permanent document records.
+            saved documents.
           </p>
+          {uploadJobActive && (
+            <span className="status-badge status-badge--warning">
+              Saving in progress
+            </span>
+          )}
         </div>
         <Button
-          disabled={isSaving || stagedFiles.length === 0}
+          disabled={isSaving || uploadJobActive || stagedFiles.length === 0}
           onClick={onCommit}
         >
-          {isSaving ? 'Saving...' : 'Save documents'}
+          {uploadJobActive ? 'Saving...' : isSaving ? 'Starting...' : 'Save documents'}
         </Button>
       </div>
 
@@ -584,7 +708,7 @@ function UploadSessionCard({
                 Preview
               </Button>
               <Button
-                disabled={isSaving}
+                disabled={isSaving || uploadJobActive}
                 onClick={() => onRemoveFile(file)}
                 variant="danger"
               >
@@ -594,6 +718,81 @@ function UploadSessionCard({
           </article>
         ))}
       </div>
+    </section>
+  )
+}
+
+function UploadJobProgressCard({ job, onDismiss }) {
+  if (!job) return null
+
+  const progress = Math.max(0, Math.min(100, Number(job.progress) || 0))
+  const processedFiles = job.processedFiles ?? 0
+  const totalFiles = job.totalFiles ?? 0
+  const statusLabel = UPLOAD_JOB_STATUS_LABELS[job.status] ?? job.status
+  const isTerminal = isUploadJobTerminal(job)
+
+  return (
+    <section className={`card upload-job-card upload-job-card--${job.status?.toLowerCase()}`}>
+      <div className="upload-job-card__header">
+        <div>
+          <span className="card__label">Upload progress</span>
+          <h2>{isTerminal ? 'Upload finished' : 'Saving your files'}</h2>
+        </div>
+        <span className={`status-badge status-badge--${getUploadJobTone(job)}`}>
+          {statusLabel}
+        </span>
+      </div>
+
+      <div
+        aria-label={`Upload progress ${progress}%`}
+        aria-valuemax="100"
+        aria-valuemin="0"
+        aria-valuenow={progress}
+        className="upload-progress"
+        role="progressbar"
+      >
+        <span style={{ width: `${progress}%` }} />
+      </div>
+
+      <div className="upload-job-card__meta">
+        <span>
+          <strong>{progress}%</strong> complete
+        </span>
+        <span>
+          {processedFiles}/{totalFiles} file(s)
+        </span>
+        <span>{formatUploadStage(job.stage)}</span>
+      </div>
+
+      <p>{getUploadProgressMessage(job)}</p>
+      {job.currentFileName && (
+        <p className="muted-copy">
+          Current file:{' '}
+          <span title={job.currentFileName}>{job.currentFileName}</span>
+        </p>
+      )}
+      {job.error && (
+        <p className="field__error">
+          {getDocumentErrorMessage(
+            job.error,
+            'We could not save these files. Please review them and try again.',
+          )}
+        </p>
+      )}
+      {job.warnings?.length > 0 && (
+        <p className="muted-copy">
+          {job.warnings.length} duplicate notice
+          {job.warnings.length === 1 ? '' : 's'} found. The files were still
+          saved as separate documents.
+        </p>
+      )}
+      {isTerminal && (
+        <div className="form-actions upload-job-card__actions">
+          <Button onClick={onDismiss} variant="secondary">
+            Dismiss
+          </Button>
+        </div>
+      )}
     </section>
   )
 }
@@ -624,6 +823,7 @@ export function Documents({ scope = 'organization' }) {
   const { user } = useAuth()
   const notifications = useNotifications()
   const fileInputRef = useRef(null)
+  const handledUploadJobIdsRef = useRef(new Set())
   const isPlatform = scope === 'platform'
   const isSuperAdmin = isSuperAdminAccess(user, access)
   const organizationId = selectedOrganization?.organization.id ?? ''
@@ -659,9 +859,12 @@ export function Documents({ scope = 'organization' }) {
   const [isDragging, setIsDragging] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_DOCUMENT_PAGE_SIZE)
   const [pagination, setPagination] = useState(null)
   const [previewTarget, setPreviewTarget] = useState(null)
   const [uploadErrors, setUploadErrors] = useState([])
+  const [uploadJob, setUploadJob] = useState(null)
   const [uploadSession, setUploadSession] = useState(null)
   const [versionTarget, setVersionTarget] = useState(null)
   const [versions, setVersions] = useState([])
@@ -673,19 +876,15 @@ export function Documents({ scope = 'organization' }) {
     () => ALLOWED_EXTENSIONS.map((extension) => extension.toUpperCase()).join(', '),
     [],
   )
-  const visibleDocuments = useMemo(
-    () =>
-      sortDocumentsByUpdatedAt(
-        documents.filter((document) =>
-          isInsideUpdatedRange(document, filters.updatedRange),
-        ),
-        filters.sort,
-      ),
-    [documents, filters.sort, filters.updatedRange],
-  )
-  const documentCount = filters.updatedRange
-    ? visibleDocuments.length
-    : pagination?.total ?? visibleDocuments.length
+  const documentCount = pagination?.total ?? documents.length
+  const uploadJobActive = Boolean(uploadJob && !isUploadJobTerminal(uploadJob))
+
+  const updateFilters = useCallback((updater) => {
+    setPage(1)
+    setFilters((current) =>
+      typeof updater === 'function' ? updater(current) : { ...current, ...updater },
+    )
+  }, [])
 
   const loadDocuments = useCallback(async () => {
     if (!canReadDocuments || (!isPlatform && !organizationId)) {
@@ -702,17 +901,30 @@ export function Documents({ scope = 'organization' }) {
       const data = isPlatform
         ? await listPlatformDocuments({
             organizationId: filters.organizationId,
-            page: 1,
-            pageSize: 50,
+            page,
+            pageSize,
             search: filters.search.trim(),
+            sort: filters.sort,
             status: filters.status,
+            updatedRange: filters.updatedRange,
           })
         : await listOrganizationDocuments(organizationId, {
-            page: 1,
-            pageSize: 50,
+            page,
+            pageSize,
             search: filters.search.trim(),
+            sort: filters.sort,
+            updatedRange: filters.updatedRange,
             view: filters.view,
           })
+
+      if (
+        data.pagination &&
+        data.pagination.total > 0 &&
+        data.pagination.page > data.pagination.pageCount
+      ) {
+        setPage(data.pagination.pageCount)
+        return
+      }
 
       setDocuments(data.documents ?? [])
       setPagination(data.pagination ?? null)
@@ -725,11 +937,19 @@ export function Documents({ scope = 'organization' }) {
     canReadDocuments,
     filters.organizationId,
     filters.search,
+    filters.sort,
     filters.status,
+    filters.updatedRange,
     filters.view,
     isPlatform,
     organizationId,
+    page,
+    pageSize,
   ])
+
+  useEffect(() => {
+    setPage(1)
+  }, [isPlatform, organizationId])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -738,6 +958,101 @@ export function Documents({ scope = 'organization' }) {
 
     return () => window.clearTimeout(handle)
   }, [loadDocuments])
+
+  useEffect(() => {
+    const jobId = uploadJob?.id
+
+    if (!jobId || !organizationId || isPlatform) {
+      return undefined
+    }
+
+    if (!('EventSource' in window)) {
+      setUploadJob((current) =>
+        current?.id === jobId
+          ? {
+              ...current,
+              message:
+                'Live upload progress is not supported by this browser. Refresh after saving finishes.',
+            }
+          : current,
+      )
+      return undefined
+    }
+
+    const source = new EventSource(getUploadJobEventsUrl(organizationId, jobId), {
+      withCredentials: true,
+    })
+
+    function handleProgress(event) {
+      let nextJob
+
+      try {
+        nextJob = JSON.parse(event.data)
+      } catch {
+        setUploadJob((current) =>
+          current?.id === jobId
+            ? { ...current, message: 'Received an unreadable progress update.' }
+            : current,
+        )
+        return
+      }
+
+      setUploadJob(nextJob)
+
+      if (!isUploadJobTerminal(nextJob) || handledUploadJobIdsRef.current.has(jobId)) {
+        return
+      }
+
+      handledUploadJobIdsRef.current.add(jobId)
+      source.close()
+      setIsSaving(false)
+
+      if (nextJob.status === 'SUCCEEDED') {
+        setUploadSession(null)
+        void loadDocuments()
+        notifications.success(
+          `${nextJob.documents?.length ?? 0} document(s) saved successfully.`,
+        )
+
+        if (nextJob.warnings?.length) {
+          notifications.info(
+            `${nextJob.warnings.length} duplicate warning(s) were returned.`,
+          )
+        }
+      } else {
+        notifications.error(
+          getDocumentErrorMessage(
+            nextJob.error,
+            'Saving failed. Review the selected files and try again.',
+          ),
+        )
+      }
+    }
+
+    source.onmessage = handleProgress
+    source.onerror = () => {
+      const isOffline =
+        typeof navigator !== 'undefined' && navigator.onLine === false
+      const message = isOffline
+        ? 'Internet disconnected. Saving will continue if it already started.'
+        : 'Live upload progress connection was interrupted. Reconnecting automatically...'
+
+      if (!isOffline) {
+        emitNetworkError(message)
+      }
+
+      setUploadJob((current) =>
+        current?.id === jobId && !isUploadJobTerminal(current)
+          ? {
+              ...current,
+              message,
+            }
+          : current,
+      )
+    }
+
+    return () => source.close()
+  }, [isPlatform, loadDocuments, notifications, organizationId, uploadJob?.id])
 
   function validateFiles(files) {
     const errors = []
@@ -781,6 +1096,7 @@ export function Documents({ scope = 'organization' }) {
 
     const { errors, files } = validateFiles(incomingFiles)
     setUploadErrors(errors)
+    setUploadJob(null)
     setZipReview(null)
     setZipSelectedPaths([])
 
@@ -807,10 +1123,15 @@ export function Documents({ scope = 'organization' }) {
 
         setZipReview({ archive: zipFiles[0], manifest })
         setZipSelectedPaths(defaultPaths)
-        notifications.info('ZIP manifest loaded. Review files before staging.')
+        notifications.info('ZIP file opened. Review files before saving.')
       } catch (requestError) {
         setError(requestError)
-        notifications.error(requestError.message)
+        notifications.error(
+          getDocumentErrorMessage(
+            requestError,
+            'We could not open this ZIP file. Check the file and try again.',
+          ),
+        )
       } finally {
         setIsSaving(false)
       }
@@ -823,12 +1144,18 @@ export function Documents({ scope = 'organization' }) {
       const session = await stageOrganizationDocuments(organizationId, files)
       const visibleSession = normalizeUploadSession(session)
       setUploadSession(visibleSession)
+      setUploadJob(null)
       notifications.success(
-        `${visibleSession?.files.length ?? 0} file(s) staged for review.`,
+        `${visibleSession?.files.length ?? 0} file(s) ready for review.`,
       )
     } catch (requestError) {
       setError(requestError)
-      notifications.error(requestError.message)
+      notifications.error(
+        getDocumentErrorMessage(
+          requestError,
+          'We could not prepare these files. Please try again.',
+        ),
+      )
     } finally {
       setIsSaving(false)
     }
@@ -848,19 +1175,25 @@ export function Documents({ scope = 'organization' }) {
       )
       const visibleSession = normalizeUploadSession(session)
       setUploadSession(visibleSession)
+      setUploadJob(null)
       setZipReview(null)
       setZipSelectedPaths([])
-      notifications.success(`${visibleSession?.files.length ?? 0} ZIP file(s) staged.`)
+      notifications.success(`${visibleSession?.files.length ?? 0} ZIP file(s) ready for review.`)
     } catch (requestError) {
       setError(requestError)
-      notifications.error(requestError.message)
+      notifications.error(
+        getDocumentErrorMessage(
+          requestError,
+          'We could not prepare the selected ZIP files. Please try again.',
+        ),
+      )
     } finally {
       setIsSaving(false)
     }
   }
 
   async function handleRemoveStagedFile(file) {
-    if (!uploadSession) return
+    if (!uploadSession || uploadJobActive) return
 
     setIsSaving(true)
     setError(null)
@@ -873,10 +1206,15 @@ export function Documents({ scope = 'organization' }) {
       )
       setUploadSession(normalizeUploadSession(session))
       setPreviewTarget((current) => (current?.id === file.id ? null : current))
-      notifications.info(`${file.originalFilename} was removed from staging.`)
+      notifications.info(`${file.originalFilename} was removed.`)
     } catch (requestError) {
       setError(requestError)
-      notifications.error(requestError.message)
+      notifications.error(
+        getDocumentErrorMessage(
+          requestError,
+          'We could not remove this file. Please try again.',
+        ),
+      )
     } finally {
       setIsSaving(false)
     }
@@ -889,39 +1227,44 @@ export function Documents({ scope = 'organization' }) {
     setError(null)
 
     try {
-      const result = await commitUploadSession(organizationId, uploadSession.id)
-      setUploadSession(null)
-      await loadDocuments()
-      notifications.success(
-        `${result.documents?.length ?? 0} document(s) saved successfully.`,
-      )
-      if (result.warnings?.length) {
-        notifications.info(
-          `${result.warnings.length} duplicate warning(s) were returned.`,
-        )
-      }
+      const job = await commitUploadSession(organizationId, uploadSession.id)
+      setUploadJob(job)
+      notifications.info('Saving started. Progress will update automatically.')
     } catch (requestError) {
       setError(requestError)
-      notifications.error(requestError.message)
+      notifications.error(
+        getDocumentErrorMessage(
+          requestError,
+          'We could not start saving these files. Please try again.',
+        ),
+      )
     } finally {
       setIsSaving(false)
     }
   }
 
   async function openDocumentPreview(document) {
-    const preview = document.latestVersion?.preview
-      ? document.latestVersion.preview
-      : !isPlatform
+    try {
+      const preview = !isPlatform
         ? await getDocumentPreview(organizationId, document.id)
-        : null
+        : document.latestVersion?.preview ?? null
 
-    setPreviewTarget({
-      ...document,
-      contentUrl: isPlatform
-        ? getPlatformDocumentContentUrl(document.id)
-        : getOrganizationDocumentContentUrl(organizationId, document.id),
-      preview,
-    })
+      setPreviewTarget({
+        ...document,
+        contentUrl: isPlatform
+          ? getPlatformDocumentContentUrl(document.id)
+          : getOrganizationDocumentContentUrl(organizationId, document.id),
+        preview,
+      })
+    } catch (requestError) {
+      setError(requestError)
+      notifications.error(
+        getDocumentErrorMessage(
+          requestError,
+          'We could not open the preview. Download the file to view it.',
+        ),
+      )
+    }
   }
 
   function openStagedPreview(file) {
@@ -952,7 +1295,12 @@ export function Documents({ scope = 'organization' }) {
       setVersions(await getDocumentVersions(organizationId, document.id))
     } catch (requestError) {
       setError(requestError)
-      notifications.error(requestError.message)
+      notifications.error(
+        getDocumentErrorMessage(
+          requestError,
+          'We could not load version history. Please try again.',
+        ),
+      )
     } finally {
       setVersionsLoading(false)
     }
@@ -975,7 +1323,12 @@ export function Documents({ scope = 'organization' }) {
       await loadDocuments()
     } catch (requestError) {
       setError(requestError)
-      notifications.error(requestError.message)
+      notifications.error(
+        getDocumentErrorMessage(
+          requestError,
+          'We could not upload the new version. Please try again.',
+        ),
+      )
     } finally {
       setIsSaving(false)
     }
@@ -996,7 +1349,12 @@ export function Documents({ scope = 'organization' }) {
       await loadDocuments()
     } catch (requestError) {
       setError(requestError)
-      notifications.error(requestError.message)
+      notifications.error(
+        getDocumentErrorMessage(
+          requestError,
+          'We could not restore this file. Please try again.',
+        ),
+      )
     } finally {
       setIsSaving(false)
     }
@@ -1021,7 +1379,14 @@ export function Documents({ scope = 'organization' }) {
       await loadDocuments()
     } catch (requestError) {
       setError(requestError)
-      notifications.error(requestError.message)
+      notifications.error(
+        getDocumentErrorMessage(
+          requestError,
+          isPlatform
+            ? 'We could not permanently delete this file. Please try again.'
+            : 'We could not delete this file. Please try again.',
+        ),
+      )
     } finally {
       setIsSaving(false)
     }
@@ -1073,7 +1438,7 @@ export function Documents({ scope = 'organization' }) {
           <h1>{isPlatform ? 'Platform documents' : 'Documents'}</h1>
           <p>
             {isPlatform
-              ? 'Review organization-deleted files and permanently purge storage only when required.'
+              ? 'Review organization-deleted files and permanently delete them only when required.'
               : `Upload, preview, version, and manage files for ${selectedOrganization.organization.name}.`}
           </p>
         </div>
@@ -1084,7 +1449,14 @@ export function Documents({ scope = 'organization' }) {
         />
       </header>
 
-      {error && <Alert onDismiss={() => setError(null)}>{error.message}</Alert>}
+      {error && (
+        <Alert onDismiss={() => setError(null)}>
+          {getDocumentErrorMessage(
+            error,
+            'Something went wrong. Please try again.',
+          )}
+        </Alert>
+      )}
       {uploadErrors.length > 0 && (
         <Alert
           autoDismissMs={6500}
@@ -1130,7 +1502,7 @@ export function Documents({ scope = 'organization' }) {
             <div className="document-dropzone__title">
               <h2>Drop files or browse</h2>
               <span
-                aria-label={`Supported: ${supportedFileTypes}. 10 MB per file. Maximum ${MAX_FILES_PER_BATCH} files per staging session. ZIP files are reviewed before staging.`}
+                aria-label={`Supported: ${supportedFileTypes}. 10 MB per file. Maximum ${MAX_FILES_PER_BATCH} files at a time. ZIP files are reviewed before saving.`}
                 className="info-tooltip"
                 role="img"
                 tabIndex={0}
@@ -1138,12 +1510,12 @@ export function Documents({ scope = 'organization' }) {
                 i
                 <span className="info-tooltip__content" role="tooltip">
                   Supported: {supportedFileTypes}. 10 MB per file. Max{' '}
-                  {MAX_FILES_PER_BATCH} files per staging session. ZIP files are
-                  reviewed before staging.
+                  {MAX_FILES_PER_BATCH} files at a time. ZIP files are reviewed
+                  before saving.
                 </span>
               </span>
             </div>
-            <p>Upload files for preview before saving.</p>
+            <p>Choose files, preview them, then save when everything looks right.</p>
           </div>
         </section>
       )}
@@ -1156,9 +1528,9 @@ export function Documents({ scope = 'organization' }) {
           <div>
             <h2>Upload is not available for your current role</h2>
             <p>
-              You can view documents, but uploading requires the
-              documents.upload permission. Ask an Organization Admin or Super
-              Admin to update your role if you need upload access.
+              You can view documents, but your role does not allow uploads.
+              Ask an Organization Admin or Super Admin if you need upload
+              access.
             </p>
           </div>
         </section>
@@ -1182,6 +1554,14 @@ export function Documents({ scope = 'organization' }) {
         onPreview={openStagedPreview}
         onRemoveFile={(file) => void handleRemoveStagedFile(file)}
         session={uploadSession}
+        uploadJob={uploadJob}
+      />
+
+      <UploadJobProgressCard
+        job={uploadJob}
+        onDismiss={() => {
+          if (!uploadJobActive) setUploadJob(null)
+        }}
       />
 
       <section
@@ -1192,7 +1572,7 @@ export function Documents({ scope = 'organization' }) {
         <Input
           label="Search documents"
           onChange={(event) =>
-            setFilters((current) => ({ ...current, search: event.target.value }))
+            updateFilters({ search: event.target.value })
           }
           placeholder="file, uploader, organization..."
           value={filters.search}
@@ -1203,10 +1583,9 @@ export function Documents({ scope = 'organization' }) {
               <span className="field__label">Organization</span>
               <select
                 onChange={(event) =>
-                  setFilters((current) => ({
-                    ...current,
+                  updateFilters({
                     organizationId: event.target.value,
-                  }))
+                  })
                 }
                 value={filters.organizationId}
               >
@@ -1222,10 +1601,9 @@ export function Documents({ scope = 'organization' }) {
               <span className="field__label">Status</span>
               <select
                 onChange={(event) =>
-                  setFilters((current) => ({
-                    ...current,
+                  updateFilters({
                     status: event.target.value,
-                  }))
+                  })
                 }
                 value={filters.status}
               >
@@ -1240,10 +1618,9 @@ export function Documents({ scope = 'organization' }) {
               <span className="field__label">Updated</span>
               <select
                 onChange={(event) =>
-                  setFilters((current) => ({
-                    ...current,
+                  updateFilters({
                     updatedRange: event.target.value,
-                  }))
+                  })
                 }
                 value={filters.updatedRange}
               >
@@ -1257,7 +1634,7 @@ export function Documents({ scope = 'organization' }) {
               <span className="field__label">Sort</span>
               <select
                 onChange={(event) =>
-                  setFilters((current) => ({ ...current, sort: event.target.value }))
+                  updateFilters({ sort: event.target.value })
                 }
                 value={filters.sort}
               >
@@ -1272,7 +1649,7 @@ export function Documents({ scope = 'organization' }) {
               <span className="field__label">Status</span>
               <select
                 onChange={(event) =>
-                  setFilters((current) => ({ ...current, view: event.target.value }))
+                  updateFilters({ view: event.target.value })
                 }
                 value={filters.view}
               >
@@ -1284,10 +1661,9 @@ export function Documents({ scope = 'organization' }) {
               <span className="field__label">Updated</span>
               <select
                 onChange={(event) =>
-                  setFilters((current) => ({
-                    ...current,
+                  updateFilters({
                     updatedRange: event.target.value,
-                  }))
+                  })
                 }
                 value={filters.updatedRange}
               >
@@ -1301,7 +1677,7 @@ export function Documents({ scope = 'organization' }) {
               <span className="field__label">Sort</span>
               <select
                 onChange={(event) =>
-                  setFilters((current) => ({ ...current, sort: event.target.value }))
+                  updateFilters({ sort: event.target.value })
                 }
                 value={filters.sort}
               >
@@ -1323,7 +1699,7 @@ export function Documents({ scope = 'organization' }) {
 
         {isLoading ? (
           <Loader label="Loading documents..." />
-        ) : visibleDocuments.length ? (
+        ) : documents.length ? (
           <div
             className={`data-table document-table ${
               isPlatform ? 'document-table--platform' : ''
@@ -1333,13 +1709,15 @@ export function Documents({ scope = 'organization' }) {
             <div className="data-table__row data-table__row--head" role="row">
               <span role="columnheader">File</span>
               {isPlatform && <span role="columnheader">Organization</span>}
+              <span role="columnheader">Type</span>
+              <span role="columnheader">Size</span>
               <span role="columnheader">Uploaded by</span>
               <span role="columnheader">Status</span>
               <span role="columnheader">Updated</span>
               <span role="columnheader">Actions</span>
             </div>
 
-            {visibleDocuments.map((document) => (
+            {documents.map((document) => (
               <article className="data-table__row" key={document.id} role="row">
                 <span
                   className="document-cell document-cell--file"
@@ -1350,9 +1728,11 @@ export function Documents({ scope = 'organization' }) {
                     {document.extension?.slice(0, 3).toUpperCase() || 'DOC'}
                   </span>
                   <span>
-                    <strong>{document.name}</strong>
-                    <small>
-                      {document.originalFilename} - {formatBytes(document.sizeBytes)}
+                    <strong className="document-file-name" title={document.name}>
+                      {document.name}
+                    </strong>
+                    <small title={document.originalFilename}>
+                      {document.originalFilename}
                     </small>
                   </span>
                 </span>
@@ -1366,6 +1746,21 @@ export function Documents({ scope = 'organization' }) {
                     <small>{document.organization?.slug}</small>
                   </span>
                 )}
+                <span
+                  className="document-cell document-cell--type"
+                  data-label="Type"
+                  role="cell"
+                >
+                  <strong>{(document.extension ?? 'file').toUpperCase()}</strong>
+                  <small title={document.mimeType}>{document.mimeType}</small>
+                </span>
+                <span
+                  className="document-cell document-cell--size"
+                  data-label="Size"
+                  role="cell"
+                >
+                  {formatBytes(document.sizeBytes)}
+                </span>
                 <span
                   className="document-cell document-cell--uploader"
                   data-label="Uploaded by"
@@ -1399,48 +1794,42 @@ export function Documents({ scope = 'organization' }) {
                   data-label="Actions"
                   role="cell"
                 >
-                  <Button
+                  <DocumentActionButton
+                    icon="preview"
+                    label="Preview"
                     onClick={() => void openDocumentPreview(document)}
-                    variant="secondary"
-                  >
-                    <DocumentUiIcon name="preview" size={14} /> Preview
-                  </Button>
+                  />
                   {canDownloadDocuments && (
-                    <Button onClick={() => openDownload(document)} variant="secondary">
-                      <DocumentUiIcon
-                        name={isPlatform ? 'open' : 'download'}
-                        size={14}
-                      />
-                      {isPlatform ? 'Open' : 'Download'}
-                    </Button>
+                    <DocumentActionButton
+                      icon={isPlatform ? 'open' : 'download'}
+                      label={isPlatform ? 'Open' : 'Download'}
+                      onClick={() => openDownload(document)}
+                    />
                   )}
                   {!isPlatform && (
-                    <Button
+                    <DocumentActionButton
+                      icon="versions"
+                      label="Versions"
                       onClick={() => void openVersions(document)}
-                      variant="secondary"
-                    >
-                      <DocumentUiIcon name="versions" size={14} /> Versions
-                    </Button>
+                    />
                   )}
                   {(document.userDeletedAt || document.orgDeletedAt) &&
                     canRestoreDocuments && (
-                      <Button
+                      <DocumentActionButton
                         disabled={isSaving}
+                        icon="restore"
+                        label="Restore"
                         onClick={() => void handleRestore(document)}
-                        variant="secondary"
-                      >
-                        <DocumentUiIcon name="restore" size={14} /> Restore
-                      </Button>
+                      />
                     )}
                   {canDeleteDocuments && document.status !== 'PURGED' && (
-                    <Button
+                    <DocumentActionButton
                       disabled={isSaving}
+                      icon="trash"
+                      label={isPlatform ? 'Purge' : 'Delete'}
                       onClick={() => setDeleteTarget(document)}
                       variant="danger"
-                    >
-                      <DocumentUiIcon name="trash" size={14} />
-                      {isPlatform ? 'Purge' : 'Delete'}
-                    </Button>
+                    />
                   )}
                 </span>
               </article>
@@ -1449,6 +1838,16 @@ export function Documents({ scope = 'organization' }) {
         ) : (
           <EmptyDocuments isPlatform={isPlatform} />
         )}
+
+        <PaginationControls
+          onPageChange={setPage}
+          onPageSizeChange={(nextPageSize) => {
+            setPageSize(nextPageSize)
+            setPage(1)
+          }}
+          pageSize={pageSize}
+          pagination={pagination}
+        />
       </section>
 
       <DocumentPreviewModal
@@ -1471,11 +1870,18 @@ export function Documents({ scope = 'organization' }) {
         onClose={() => !isSaving && setDeleteTarget(null)}
         title={isPlatform ? 'Permanently delete document?' : 'Delete document?'}
       >
-        {error && <Alert>{error.message}</Alert>}
+        {error && (
+          <Alert>
+            {getDocumentErrorMessage(
+              error,
+              'Something went wrong. Please try again.',
+            )}
+          </Alert>
+        )}
         <p>
           {isPlatform
-            ? 'This permanently removes the file content from storage. Use it only after platform review.'
-            : 'This uses the backend soft-delete flow. Organization-level deletion sends files to platform review instead of purging storage.'}
+            ? 'This permanently removes the file. Use it only after platform review.'
+            : 'This removes the file from the organization view. A platform reviewer can still restore or permanently delete it later.'}
         </p>
         <p>
           Target: <strong>{deleteTarget?.name}</strong>

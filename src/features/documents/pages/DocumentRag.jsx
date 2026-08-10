@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
+import { ListPagination } from '../../../shared/components/ListPagination.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
 import { RefreshIconButton } from '../../../shared/components/RefreshIconButton.jsx'
 import { useNotifications } from '../../../shared/useNotifications.js'
@@ -16,20 +17,17 @@ import {
 } from '../services/documentsApi.js'
 
 const MAX_SELECTED_DOCUMENTS = 50
-const SEARCH_TYPES = [
-  { label: 'Hybrid', value: 'hybrid' },
-  { label: 'Semantic', value: 'semantic' },
-  { label: 'Keyword', value: 'keyword' },
-]
-const TOP_K_OPTIONS = [3, 5, 10, 15, 20]
+const DEFAULT_DOCUMENT_PAGE_SIZE = 10
 const RAG_STATUS_LABELS = {
   FAILED: 'Failed',
   INDEXED: 'Ready',
-  INDEXING: 'Indexing',
-  NOT_INDEXED: 'Not indexed',
-  NO_CONTENT: 'No text',
-  PENDING: 'Queued',
+  INDEXING: 'Preparing',
+  NOT_INDEXED: 'Needs preparation',
+  NO_CONTENT: 'No readable text',
+  PENDING: 'Waiting',
 }
+const RAG_WORKING_STATUSES = new Set(['PENDING', 'INDEXING'])
+const RAG_READY_STATUSES = new Set(['INDEXED'])
 
 function RagIcon({ name, size = 18 }) {
   const commonProps = {
@@ -93,7 +91,7 @@ function formatBytes(value = 0) {
 }
 
 function formatDate(value) {
-  if (!value) return 'Not indexed yet'
+  if (!value) return 'Not ready yet'
 
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
@@ -118,23 +116,45 @@ function getRagStatusLabel(status) {
   return RAG_STATUS_LABELS[status] ?? String(status ?? 'Unknown')
 }
 
-function getScoreLabel(score) {
-  if (!Number.isFinite(score)) return ''
-
-  return `${Math.round(score * 100)}% match`
+function isRagStatusWorking(status) {
+  return RAG_WORKING_STATUSES.has(status)
 }
 
-function getDocumentSearchText(document) {
-  return [
-    document.name,
-    document.originalFilename,
-    document.extension,
-    document.createdBy?.name,
-    document.createdBy?.email,
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase()
+function isRagStatusReady(status) {
+  return RAG_READY_STATUSES.has(status)
+}
+
+function getRagProgress(statusView) {
+  const progress = Number(statusView?.progress)
+
+  if (Number.isFinite(progress)) {
+    return Math.min(Math.max(progress, 0), 100)
+  }
+
+  if (statusView?.status === 'INDEXED') return 100
+  if (statusView?.status === 'NO_CONTENT') return 100
+  if (statusView?.status === 'FAILED') return 100
+  if (statusView?.status === 'INDEXING') return 55
+  if (statusView?.status === 'PENDING') return 15
+
+  return 0
+}
+
+function getScoreLabel(score) {
+  const numericScore = Number(score)
+
+  if (!Number.isFinite(numericScore)) return ''
+
+  return `${Math.round(numericScore * 100)}% match`
+}
+
+function formatProcessingTime(value) {
+  const numericValue = Number(value)
+
+  if (!Number.isFinite(numericValue)) return 'Completed'
+  if (numericValue < 1000) return 'Completed just now'
+
+  return `${(numericValue / 1000).toFixed(1)} s`
 }
 
 function normalizeAnswerMarkdown(text = '') {
@@ -193,42 +213,147 @@ function AnswerMarkdown({ text }) {
   )
 }
 
-function ResultCard({ organizationId, result }) {
+function getSourceDocuments(response) {
+  const rawSources = [
+    ...(response?.sources ?? []),
+    ...(response?.search_results ?? []),
+    ...(response?.results ?? []),
+  ]
+  const byDocument = new Map()
+
+  for (const source of rawSources) {
+    if (!source?.document_id) continue
+
+    const existing = byDocument.get(source.document_id)
+    const nextScore = Number(source.score)
+    const existingScore = Number(existing?.score)
+
+    if (
+      !existing ||
+      (Number.isFinite(nextScore) ? nextScore : 0) >
+        (Number.isFinite(existingScore) ? existingScore : 0)
+    ) {
+      byDocument.set(source.document_id, source)
+    }
+  }
+
+  return [...byDocument.values()].sort(
+    (left, right) =>
+      (Number.isFinite(Number(right.score)) ? Number(right.score) : 0) -
+      (Number.isFinite(Number(left.score)) ? Number(left.score) : 0),
+  )
+}
+
+function SourceDocumentCard({ organizationId, result }) {
+  const documentName =
+    result.document_name || result.original_filename || 'Document'
+  const fileType =
+    result.file_type || result.fileType || result.extension || 'DOC'
+  const pageLabel =
+    result.page_number || result.pageNumber
+      ? `Page ${result.page_number ?? result.pageNumber}`
+      : null
+  const detail = [
+    result.original_filename,
+    pageLabel,
+    result.version_number ? `Version ${result.version_number}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
   return (
-    <article className="rag-result-card">
+    <article className="rag-source-card">
       <div className="rag-result-card__header">
         <span className="file-icon" aria-hidden="true">
-          {(result.file_type ?? '').slice(0, 3).toUpperCase() || 'DOC'}
+          {fileType.slice(0, 3).toUpperCase()}
         </span>
         <div>
-          <strong>{result.document_name}</strong>
+          <strong title={documentName}>{documentName}</strong>
           <small>
-            Chunk {result.chunk_index + 1} · Version {result.version_number}
+            {detail || 'Used for this answer'}
           </small>
         </div>
-        <span className="status-badge">{getScoreLabel(result.score)}</span>
+        {Number.isFinite(Number(result.score)) && (
+          <span className="status-badge">{getScoreLabel(result.score)}</span>
+        )}
       </div>
-      <p>{result.text}</p>
       <a
         className="rag-source-link"
         href={getOrganizationDocumentContentUrl(organizationId, result.document_id)}
         rel="noreferrer"
         target="_blank"
       >
-        <RagIcon name="open" size={14} /> Open source file
+        <RagIcon name="open" size={14} /> Open file
       </a>
     </article>
   )
 }
 
-function buildRagPayload({ query, scope, searchType, selectedDocumentIds, topK }) {
+function buildRagPayload({ query, scope, selectedDocumentIds }) {
   return {
     documentIds: scope === 'selected' ? selectedDocumentIds : undefined,
     query,
     scope,
-    searchType,
-    topK: Number(topK),
   }
+}
+
+function RagStatusIndicator({ statusView }) {
+  const status = statusView?.status ?? 'NOT_INDEXED'
+  const progress = getRagProgress(statusView)
+  const isWorking = isRagStatusWorking(status)
+  const message = getFriendlyRagStatusMessage(status)
+
+  return (
+    <span className="rag-index-status" title={message}>
+      <span
+        className={`status-badge status-badge--${getStatusTone(status)}`}
+      >
+        {getRagStatusLabel(status)}
+      </span>
+      <span
+        aria-label={`${getRagStatusLabel(status)} ${progress}%`}
+        className={`rag-index-progress ${
+          isWorking ? 'rag-index-progress--active' : ''
+        }`}
+        role="progressbar"
+      >
+        <span style={{ width: `${progress}%` }} />
+      </span>
+      <small>{message}</small>
+    </span>
+  )
+}
+
+function getFriendlyRagStatusMessage(status) {
+  if (status === 'INDEXED') return 'Ready for questions.'
+  if (status === 'INDEXING') return 'Preparing this file for questions.'
+  if (status === 'PENDING') return 'Waiting to prepare this file.'
+  if (status === 'NO_CONTENT') return 'No readable text was found.'
+  if (status === 'FAILED') return 'We could not prepare this file. Try again.'
+
+  return 'Prepare this file before asking AI.'
+}
+
+function getDocumentAiErrorMessage(error, fallback) {
+  const message = String(error?.message ?? '')
+  const lowerMessage = message.toLowerCase()
+  const technicalMarkers = [
+    'backend',
+    'document ai service',
+    'fastapi',
+    'hmac',
+    'index',
+    'qdrant',
+    'rag',
+    'serviceunavailable',
+    'vector',
+  ]
+
+  if (!message || technicalMarkers.some((marker) => lowerMessage.includes(marker))) {
+    return fallback
+  }
+
+  return message
 }
 
 export function DocumentRag() {
@@ -247,6 +372,11 @@ export function DocumentRag() {
   const [documents, setDocuments] = useState([])
   const [documentStatuses, setDocumentStatuses] = useState([])
   const [documentFilter, setDocumentFilter] = useState('')
+  const [documentPage, setDocumentPage] = useState(1)
+  const [documentPageSize, setDocumentPageSize] = useState(
+    DEFAULT_DOCUMENT_PAGE_SIZE,
+  )
+  const [documentPagination, setDocumentPagination] = useState(null)
   const [error, setError] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isReindexing, setIsReindexing] = useState(false)
@@ -255,9 +385,7 @@ export function DocumentRag() {
   const [resultMode, setResultMode] = useState(null)
   const [scope, setScope] = useState('selected')
   const [searchResponse, setSearchResponse] = useState(null)
-  const [searchType, setSearchType] = useState('hybrid')
   const [selectedDocumentIds, setSelectedDocumentIds] = useState([])
-  const [topK, setTopK] = useState(5)
 
   const statusByDocumentId = useMemo(
     () =>
@@ -270,24 +398,42 @@ export function DocumentRag() {
     [documentStatuses],
   )
 
-  const visibleDocuments = useMemo(() => {
-    const needle = documentFilter.trim().toLowerCase()
-
-    if (!needle) return documents
-
-    return documents.filter((document) =>
-      getDocumentSearchText(document).includes(needle),
-    )
-  }, [documentFilter, documents])
-
   const selectedCount = selectedDocumentIds.length
   const isSelectionRequired = scope === 'selected'
   const hasSelectedTooMany = selectedCount > MAX_SELECTED_DOCUMENTS
-  const canSubmit =
-    query.trim().length > 0 &&
-    (!isSelectionRequired || selectedCount > 0) &&
-    !hasSelectedTooMany &&
-    !isSearching
+  const sourceDocuments = useMemo(
+    () => getSourceDocuments(searchResponse),
+    [searchResponse],
+  )
+  const selectedStatusViews = useMemo(
+    () =>
+      selectedDocumentIds.map(
+        (documentId) =>
+          statusByDocumentId.get(documentId) ?? {
+            documentId,
+            status: 'NOT_INDEXED',
+          },
+      ),
+    [selectedDocumentIds, statusByDocumentId],
+  )
+  const activeIndexingCount = useMemo(
+    () =>
+      documentStatuses.filter((statusView) =>
+        isRagStatusWorking(statusView.status),
+      ).length,
+    [documentStatuses],
+  )
+  const readyDocumentCount = useMemo(
+    () =>
+      documentStatuses.filter((statusView) =>
+        isRagStatusReady(statusView.status),
+      ).length,
+    [documentStatuses],
+  )
+  const selectedNotReadyCount = selectedStatusViews.filter(
+    (statusView) => !isRagStatusReady(statusView.status),
+  ).length
+  const askAiProcessing = isSearching && resultMode === 'ask'
 
   const loadRagData = useCallback(async () => {
     if (!organizationId || !canReadDocuments) return
@@ -298,35 +444,89 @@ export function DocumentRag() {
     try {
       const [documentList, statuses] = await Promise.all([
         listOrganizationDocuments(organizationId, {
-          page: 1,
-          pageSize: 100,
+          page: documentPage,
+          pageSize: documentPageSize,
+          search: documentFilter.trim(),
           view: 'active',
         }),
         getRagDocumentStatuses(organizationId),
       ])
 
-      setDocuments(documentList.documents ?? [])
-      setDocumentStatuses(statuses ?? [])
-      setSelectedDocumentIds((current) => {
-        const availableIds = new Set(
-          (documentList.documents ?? []).map((document) => document.id),
-        )
+      if (
+        documentList.pagination &&
+        documentList.pagination.total > 0 &&
+        documentList.pagination.page > documentList.pagination.pageCount
+      ) {
+        setDocumentPage(documentList.pagination.pageCount)
+        return
+      }
 
-        return current.filter((documentId) => availableIds.has(documentId))
-      })
+      setDocuments(documentList.documents ?? [])
+      setDocumentPagination(documentList.pagination ?? null)
+      setDocumentStatuses(statuses ?? [])
     } catch (requestError) {
       setError(requestError)
-      notifications.error(requestError.message)
+      notifications.error(
+        getDocumentAiErrorMessage(
+          requestError,
+          'We could not load your files. Refresh the page and try again.',
+        ),
+      )
     } finally {
       setIsLoading(false)
     }
-  }, [canReadDocuments, notifications, organizationId])
+  }, [
+    canReadDocuments,
+    documentFilter,
+    documentPage,
+    documentPageSize,
+    notifications,
+    organizationId,
+  ])
+
+  const refreshRagStatuses = useCallback(async () => {
+    if (!organizationId || !canReadDocuments) return
+
+    try {
+      const statuses = await getRagDocumentStatuses(organizationId)
+      setDocumentStatuses(statuses ?? [])
+    } catch {
+      // Keep polling quiet; the main refresh path still reports visible errors.
+    }
+  }, [canReadDocuments, organizationId])
 
   useEffect(() => {
     if (status === 'ready') {
-      void loadRagData()
+      const handle = window.setTimeout(() => {
+        void loadRagData()
+      }, 250)
+
+      return () => window.clearTimeout(handle)
     }
   }, [loadRagData, status])
+
+  useEffect(() => {
+    if (
+      status !== 'ready' ||
+      !organizationId ||
+      !canReadDocuments ||
+      activeIndexingCount === 0
+    ) {
+      return undefined
+    }
+
+    const handle = window.setInterval(() => {
+      void refreshRagStatuses()
+    }, 3500)
+
+    return () => window.clearInterval(handle)
+  }, [
+    activeIndexingCount,
+    canReadDocuments,
+    organizationId,
+    refreshRagStatuses,
+    status,
+  ])
 
   function toggleDocument(documentId) {
     setSelectedDocumentIds((current) => {
@@ -344,19 +544,69 @@ export function DocumentRag() {
   }
 
   function selectVisibleDocuments() {
-    const nextIds = visibleDocuments
+    const nextIds = documents
       .map((document) => document.id)
       .slice(0, MAX_SELECTED_DOCUMENTS)
 
     setSelectedDocumentIds(nextIds)
 
-    if (visibleDocuments.length > MAX_SELECTED_DOCUMENTS) {
-      notifications.info(`Selected the first ${MAX_SELECTED_DOCUMENTS} visible files.`)
+    if (documents.length > MAX_SELECTED_DOCUMENTS) {
+      notifications.info(`Selected the first ${MAX_SELECTED_DOCUMENTS} shown files.`)
     }
   }
 
+  function validateRagRequest(mode) {
+    if (!query.trim()) {
+      notifications.info('Enter a question first.')
+      return false
+    }
+
+    if (scope === 'selected' && selectedCount === 0) {
+      notifications.info(
+        mode === 'ask'
+          ? 'Select at least one file before asking AI.'
+          : 'Select at least one file before finding matches.',
+      )
+      return false
+    }
+
+    if (hasSelectedTooMany) {
+      notifications.info(`You can select up to ${MAX_SELECTED_DOCUMENTS} files.`)
+      return false
+    }
+
+    return true
+  }
+
   async function runRagRequest(mode) {
-    if (!canSubmit) return
+    if (isSearching) {
+      notifications.info('AI is already working. Please wait for the current request to finish.')
+      return
+    }
+
+    if (!validateRagRequest(mode)) return
+
+    if (scope === 'selected' && selectedNotReadyCount > 0) {
+      const workingCount = selectedStatusViews.filter((statusView) =>
+        isRagStatusWorking(statusView.status),
+      ).length
+
+      notifications.info(
+        workingCount > 0
+          ? `${workingCount} selected file(s) are still being prepared. Ask AI will be available when they are ready.`
+          : 'Some selected files need to be prepared before Ask AI can use them.',
+      )
+      return
+    }
+
+    if (scope === 'all' && readyDocumentCount === 0) {
+      notifications.info('No files are ready for Ask AI yet. Prepare files first.')
+      return
+    }
+
+    if (scope === 'all' && activeIndexingCount > 0) {
+      notifications.info('Some files are still being prepared. The answer will use files that are ready.')
+    }
 
     setIsSearching(true)
     setError(null)
@@ -366,9 +616,7 @@ export function DocumentRag() {
       const payload = buildRagPayload({
         query: query.trim(),
         scope,
-        searchType,
         selectedDocumentIds,
-        topK,
       })
       const response =
         mode === 'ask'
@@ -378,17 +626,29 @@ export function DocumentRag() {
       setSearchResponse(response)
     } catch (requestError) {
       setError(requestError)
-      notifications.error(requestError.message)
+      notifications.error(
+        getDocumentAiErrorMessage(
+          requestError,
+          mode === 'ask'
+            ? 'AI could not answer right now. Please try again in a moment.'
+            : 'We could not find matching files right now. Please try again.',
+        ),
+      )
     } finally {
       setIsSearching(false)
     }
   }
 
   async function handleReindex() {
+    if (isReindexing) {
+      notifications.info('File preparation is already running. Watch the file status for progress.')
+      return
+    }
+
     const targetIds = scope === 'selected' ? selectedDocumentIds : []
 
     if (scope === 'selected' && targetIds.length === 0) {
-      notifications.error('Select at least one file before reindexing.')
+      notifications.error('Select at least one file before preparing it for AI.')
       return
     }
 
@@ -401,10 +661,23 @@ export function DocumentRag() {
       })
 
       setDocumentStatuses(statuses ?? [])
-      notifications.success('Document index was refreshed.')
+      const workingCount = (statuses ?? []).filter((statusView) =>
+        isRagStatusWorking(statusView.status),
+      ).length
+
+      notifications.success(
+        workingCount > 0
+          ? `Preparing ${workingCount} file(s). Status will update automatically.`
+          : 'Selected file(s) are already ready.',
+      )
     } catch (requestError) {
       setError(requestError)
-      notifications.error(requestError.message)
+      notifications.error(
+        getDocumentAiErrorMessage(
+          requestError,
+          'We could not prepare the selected files. Please try again.',
+        ),
+      )
     } finally {
       setIsReindexing(false)
     }
@@ -459,16 +732,23 @@ export function DocumentRag() {
         </div>
         <RefreshIconButton
           disabled={isLoading}
-          label="Refresh document index"
+          label="Refresh files"
           onClick={() => void loadRagData()}
         />
       </header>
 
-      {error && <Alert onDismiss={() => setError(null)}>{error.message}</Alert>}
+      {error && (
+        <Alert onDismiss={() => setError(null)}>
+          {getDocumentAiErrorMessage(
+            error,
+            'Something went wrong. Please try again.',
+          )}
+        </Alert>
+      )}
       {!canAskDocuments && (
         <Alert tone="info">
-          Search is available. Ask AI requires the ai.access permission for this
-          organization.
+          You can find matching files, but your current role cannot ask AI in
+          this organization.
         </Alert>
       )}
 
@@ -478,11 +758,11 @@ export function DocumentRag() {
             <RagIcon name="spark" size={22} />
           </span>
           <div>
-            <span className="card__label">Question scope</span>
-            <h2>Ask from controlled document access</h2>
+            <span className="card__label">Answer settings</span>
+            <h2>Ask from files you can access</h2>
             <p>
-              The backend filters every answer by organization, role, and
-              document access before anything reaches the vector search service.
+              Answers only use files available to your current organization and
+              role.
             </p>
           </div>
         </div>
@@ -511,32 +791,6 @@ export function DocumentRag() {
               <option value="all">All readable files</option>
             </select>
           </label>
-          <label className="field">
-            <span className="field__label">Search type</span>
-            <select
-              onChange={(event) => setSearchType(event.target.value)}
-              value={searchType}
-            >
-              {SEARCH_TYPES.map((type) => (
-                <option key={type.value} value={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span className="field__label">Results</span>
-            <select
-              onChange={(event) => setTopK(Number(event.target.value))}
-              value={topK}
-            >
-              {TOP_K_OPTIONS.map((value) => (
-                <option key={value} value={value}>
-                  Top {value}
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
 
         <details className="rag-file-picker" open={scope === 'selected'}>
@@ -553,17 +807,20 @@ export function DocumentRag() {
             <div className="rag-file-picker__toolbar">
               <Input
                 label="Filter files"
-                onChange={(event) => setDocumentFilter(event.target.value)}
+                onChange={(event) => {
+                  setDocumentFilter(event.target.value)
+                  setDocumentPage(1)
+                }}
                 placeholder="name, type, uploader..."
                 value={documentFilter}
               />
               <div className="inline-actions">
                 <Button
-                  disabled={isLoading || visibleDocuments.length === 0}
+                  disabled={isLoading || documents.length === 0}
                   onClick={selectVisibleDocuments}
                   variant="secondary"
                 >
-                  Select visible
+                  Select shown
                 </Button>
                 <Button
                   disabled={selectedCount === 0}
@@ -575,11 +832,29 @@ export function DocumentRag() {
               </div>
             </div>
 
+            {(activeIndexingCount > 0 || readyDocumentCount > 0) && (
+              <div className="rag-index-summary">
+                <span>
+                  <strong>{readyDocumentCount}</strong> ready
+                </span>
+                {activeIndexingCount > 0 && (
+                  <span>
+                    <strong>{activeIndexingCount}</strong> preparing
+                  </span>
+                )}
+                {selectedNotReadyCount > 0 && scope === 'selected' && (
+                  <span>
+                    <strong>{selectedNotReadyCount}</strong> selected not ready
+                  </span>
+                )}
+              </div>
+            )}
+
             {isLoading ? (
               <Loader label="Loading files..." />
-            ) : visibleDocuments.length ? (
+            ) : documents.length ? (
               <div className="rag-document-list">
-                {visibleDocuments.map((document) => {
+                {documents.map((document) => {
                   const selected = selectedDocumentIds.includes(document.id)
                   const indexStatus = statusByDocumentId.get(document.id)
                   const ragStatus = indexStatus?.status ?? 'NOT_INDEXED'
@@ -603,17 +878,13 @@ export function DocumentRag() {
                           {document.originalFilename} · {formatBytes(document.sizeBytes)} ·{' '}
                           {getActorLabel(document.createdBy)}
                           {indexStatus?.updatedAt
-                            ? ` · indexed ${formatDate(indexStatus.updatedAt)}`
+                            ? ` · ready ${formatDate(indexStatus.updatedAt)}`
                             : ''}
                         </small>
                       </span>
-                      <span
-                        className={`status-badge status-badge--${getStatusTone(
-                          ragStatus,
-                        )}`}
-                      >
-                        {getRagStatusLabel(ragStatus)}
-                      </span>
+                      <RagStatusIndicator
+                        statusView={indexStatus ?? { status: ragStatus }}
+                      />
                     </label>
                   )
                 })}
@@ -626,40 +897,57 @@ export function DocumentRag() {
                 </div>
               </section>
             )}
+
+            <ListPagination
+              label="Ask Documents file pagination"
+              onPageChange={setDocumentPage}
+              onPageSizeChange={(nextPageSize) => {
+                setDocumentPageSize(nextPageSize)
+                setDocumentPage(1)
+              }}
+              pageSize={documentPageSize}
+              pagination={documentPagination}
+            />
           </div>
         </details>
 
         {isSelectionRequired && selectedCount === 0 && (
           <p className="field__hint">
-            Select one or more files before asking from selected scope.
+            Select one or more files before asking AI.
           </p>
         )}
 
         <div className="form-actions rag-actions">
           <Button
-            disabled={!canSubmit || !canAskDocuments}
+            disabled={isSearching || !canAskDocuments}
             onClick={() => void runRagRequest('ask')}
           >
             <RagIcon name="spark" size={15} />
-            {isSearching && resultMode === 'ask' ? 'Asking...' : 'Ask AI'}
+            {askAiProcessing ? 'AI is working...' : 'Ask AI'}
           </Button>
-          <Button
-            disabled={!canSubmit}
-            onClick={() => void runRagRequest('search')}
-            variant="secondary"
-          >
-            <RagIcon name="search" size={15} />
-            {isSearching && resultMode === 'search' ? 'Searching...' : 'Search only'}
-          </Button>
-          {canReindexDocuments && (
-            <Button
-              disabled={isReindexing || isLoading}
-              onClick={() => void handleReindex()}
-              variant="secondary"
-            >
-              <RagIcon name="refresh" size={15} />
-              {isReindexing ? 'Reindexing...' : 'Reindex files'}
-            </Button>
+          {!askAiProcessing && (
+            <>
+              <Button
+                disabled={isSearching}
+                onClick={() => void runRagRequest('search')}
+                variant="secondary"
+              >
+                <RagIcon name="search" size={15} />
+                {isSearching && resultMode === 'search'
+                  ? 'Finding...'
+                  : 'Find matching files'}
+              </Button>
+              {canReindexDocuments && (
+                <Button
+                  disabled={isReindexing || isLoading}
+                  onClick={() => void handleReindex()}
+                  variant="secondary"
+                >
+                  <RagIcon name="refresh" size={15} />
+                  {isReindexing ? 'Preparing...' : 'Prepare files for AI'}
+                </Button>
+              )}
+            </>
           )}
         </div>
       </section>
@@ -671,29 +959,29 @@ export function DocumentRag() {
               <div className="section-heading">
                 <div>
                   <span className="card__label">
-                    {searchResponse.llm_available ? 'AI answer' : 'Search fallback'}
+                    {searchResponse.llm_available ? 'AI answer' : 'Helpful matches'}
                   </span>
-                  <h2>Answer from selected evidence</h2>
+                  <h2>Answer</h2>
                 </div>
-                {searchResponse.llm_model && (
-                  <span className="status-badge">{searchResponse.llm_model}</span>
-                )}
               </div>
               <AnswerMarkdown text={searchResponse.answer} />
-              {searchResponse.sources?.length > 0 && (
+              {sourceDocuments.length > 0 && (
                 <div className="rag-source-list">
-                  {searchResponse.sources.map((source) => (
+                  {sourceDocuments.map((source) => (
                     <a
                       className="rag-source-pill"
                       href={getOrganizationDocumentContentUrl(
                         organizationId,
                         source.document_id,
                       )}
-                      key={`${source.document_id}-${source.chunk_index}`}
+                      key={source.document_id}
                       rel="noreferrer"
+                      title={source.document_name || source.original_filename}
                       target="_blank"
                     >
-                      {source.document_name} · chunk {source.chunk_index + 1}
+                      {source.document_name ||
+                        source.original_filename ||
+                        'Document'}
                     </a>
                   ))}
                 </div>
@@ -704,26 +992,23 @@ export function DocumentRag() {
           <section className="card">
             <div className="section-heading">
               <div>
-                <span className="card__label">Evidence</span>
+                <span className="card__label">Files used</span>
                 <h2>
-                  {searchResponse.total_results ??
-                    searchResponse.search_results?.length ??
-                    searchResponse.results?.length ??
-                    0}{' '}
-                  matching chunks
+                  {sourceDocuments.length} file
+                  {sourceDocuments.length === 1 ? '' : 's'}
                 </h2>
               </div>
               <span className="status-badge">
-                {searchResponse.processing_time_ms} ms
+                {formatProcessingTime(searchResponse.processing_time_ms)}
               </span>
             </div>
 
-            {(searchResponse.search_results ?? searchResponse.results ?? []).length ? (
+            {sourceDocuments.length ? (
               <div className="rag-result-list">
-                {(searchResponse.search_results ?? searchResponse.results ?? []).map(
+                {sourceDocuments.map(
                   (result) => (
-                    <ResultCard
-                      key={`${result.document_id}-${result.version_number}-${result.chunk_index}`}
+                    <SourceDocumentCard
+                      key={result.document_id}
                       organizationId={organizationId}
                       result={result}
                     />
@@ -735,8 +1020,8 @@ export function DocumentRag() {
                 <div>
                   <h2>No matching text found</h2>
                   <p>
-                    Try selecting more files, changing search type, or reindexing
-                    documents that are not ready yet.
+                    Try selecting more files or preparing files that are not
+                    ready yet.
                   </p>
                 </div>
               </section>
