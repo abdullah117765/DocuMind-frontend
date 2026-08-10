@@ -72,6 +72,50 @@ export async function listOrganizationDocuments(organizationId, params = {}) {
   return getResponseData(response)
 }
 
+export async function searchRagDocuments(organizationId, payload) {
+  const response = await apiRequest(organizationDocumentPath(organizationId, '/rag/search'), {
+    body: payload,
+    cache: 'no-store',
+    method: 'POST',
+    requiresAuth: true,
+  })
+
+  return getResponseData(response)
+}
+
+export async function askRagDocuments(organizationId, payload) {
+  const response = await apiRequest(organizationDocumentPath(organizationId, '/rag/ask'), {
+    body: payload,
+    cache: 'no-store',
+    method: 'POST',
+    requiresAuth: true,
+  })
+
+  return getResponseData(response)
+}
+
+export async function getRagDocumentStatuses(organizationId) {
+  const response = await apiRequest(organizationDocumentPath(organizationId, '/rag/status'), {
+    cache: 'no-store',
+    requiresAuth: true,
+  })
+
+  return getResponseData(response).documents
+}
+
+export async function reindexRagDocuments(organizationId, payload = {}) {
+  const response = await csrfRequest(
+    organizationDocumentPath(organizationId, '/rag/reindex'),
+    {
+      body: payload,
+      method: 'POST',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).documents
+}
+
 export async function listPlatformDocuments(params = {}) {
   const response = await apiRequest(platformDocumentPath(queryString(params)), {
     cache: 'no-store',

@@ -66,6 +66,12 @@ function Icon({ className = '', name, size = 18 }) {
           <path d="M3 6h.01M3 12h.01M3 18h.01" {...commonProps} />
         </>
       )}
+      {name === 'search' && (
+        <>
+          <circle cx="11" cy="11" r="7" {...commonProps} />
+          <path d="m20 20-3.5-3.5" {...commonProps} />
+        </>
+      )}
       {name === 'shield' && (
         <>
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" {...commonProps} />
@@ -177,6 +183,64 @@ export function AuthenticatedLayout({ children }) {
     }
   }
 
+  const navigationGroups = [
+    {
+      items: [{ label: 'Dashboard', to: '/dashboard' }],
+      label: 'Main',
+    },
+    shouldShowOrganizationGroup && {
+      items: [
+        canReadDocuments && {
+          label: isSuperAdmin ? 'Upload Documents' : 'Documents',
+          to: '/documents',
+        },
+        canReadDocuments && {
+          label: 'Ask Documents',
+          to: '/documents/search',
+        },
+        canViewTeam && {
+          label: canManageMembers ? 'Members' : 'Team',
+          to: '/organization/members',
+        },
+        canManageRoles && { label: 'Roles', to: '/organization/roles' },
+        canViewOrganizationAuditLogs &&
+          !canAccessAuditLogs && { label: 'Audit Logs', to: '/audit-logs' },
+      ].filter(Boolean),
+      label: 'Organization',
+    },
+    canAccessPlatform && {
+      items: [
+        canAccessPlatformOrganizations && {
+          label: 'Organizations',
+          to: '/platform/organizations',
+        },
+        canAccessPlatformUsers && {
+          label: 'Platform Users',
+          to: '/platform/users',
+        },
+        canAccessPlatformDocuments && {
+          label: 'Platform Documents',
+          to: '/platform/documents',
+        },
+        canAccessAuditLogs && { label: 'Audit Logs', to: '/audit-logs' },
+      ].filter(Boolean),
+      label: 'Platform',
+    },
+    {
+      items: [
+        { label: 'Profile', to: '/account/profile' },
+        { label: 'Active devices', to: '/account/sessions' },
+      ],
+      label: 'Account',
+    },
+  ].filter((group) => group && group.items.length > 0)
+  const navigationItems = navigationGroups.flatMap((group) => group.items)
+  const activeMobileRoute = navigationItems.some(
+    (item) => item.to === location.pathname,
+  )
+    ? location.pathname
+    : ''
+
   return (
     <div className="app-shell">
       <aside className="app-sidebar">
@@ -199,6 +263,11 @@ export function AuthenticatedLayout({ children }) {
               {canReadDocuments && (
                 <NavItem icon="file" to="/documents">
                   {isSuperAdmin ? 'Upload Documents' : 'Documents'}
+                </NavItem>
+              )}
+              {canReadDocuments && (
+                <NavItem icon="search" to="/documents/search">
+                  Ask Documents
                 </NavItem>
               )}
               {canViewTeam && (
@@ -251,6 +320,30 @@ export function AuthenticatedLayout({ children }) {
             Active devices
           </NavItem>
         </nav>
+
+        <label className="mobile-route-select">
+          <span>Menu</span>
+          <select
+            aria-label="Mobile navigation"
+            onChange={(event) => {
+              if (event.target.value) {
+                navigate(event.target.value)
+              }
+            }}
+            value={activeMobileRoute}
+          >
+            {!activeMobileRoute && <option value="">Select page</option>}
+            {navigationGroups.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.items.map((item) => (
+                  <option key={`${group.label}-${item.to}`} value={item.to}>
+                    {item.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
 
         <footer className="sidebar-footer">
           <div className="profile-menu profile-menu--sidebar">

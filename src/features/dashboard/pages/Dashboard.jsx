@@ -66,6 +66,12 @@ function DashboardIcon({ name }) {
           <path d="M14 2v5h5M9 13h6M9 17h4" {...commonProps} />
         </>
       )}
+      {name === 'search' && (
+        <>
+          <circle cx="11" cy="11" r="7" {...commonProps} />
+          <path d="m20 20-3.5-3.5" {...commonProps} />
+        </>
+      )}
       {name === 'clock' && (
         <>
           <circle cx="12" cy="12" r="9" {...commonProps} />
@@ -469,6 +475,11 @@ export function Dashboard() {
                 Upload
               </Link>
             )}
+            {selectedOrganization && canReadDocuments && (
+              <Link className="button button--secondary button--link" to="/documents/search">
+                <DashboardIcon name="search" /> Ask
+              </Link>
+            )}
             <Link className="button button--secondary button--link" to="/audit-logs">
               Audit Logs
             </Link>
@@ -581,6 +592,11 @@ export function Dashboard() {
           {canReadDocuments && (
             <Link className="button button--secondary button--link" to="/documents">
               Upload
+            </Link>
+          )}
+          {canReadDocuments && (
+            <Link className="button button--secondary button--link" to="/documents/search">
+              <DashboardIcon name="search" /> Ask
             </Link>
           )}
           <Link className="button button--secondary button--link" to="/account/sessions">
