@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Alert } from '../../../shared/components/Alert.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
+import { ListPagination } from '../../../shared/components/ListPagination.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
 import { RefreshIconButton } from '../../../shared/components/RefreshIconButton.jsx'
 import { isSuperAdminAccess } from '../../../shared/utils/accessDisplay.js'
+import { getFriendlyErrorMessage } from '../../../shared/utils/errorMessages.js'
 import { useAccessControl } from '../../access-control/hooks/useAccessControl.js'
 import { useAuth } from '../../auth/hooks/useAuth.js'
 import { getAuditLogs } from '../services/auditApi.js'
@@ -15,29 +17,65 @@ function formatDate(value) {
   }).format(new Date(value))
 }
 
-function formatMetadata(metadata) {
-  if (!metadata) return 'No metadata'
+function formatActionLabel(action = '') {
+  const cleaned = String(action)
+    .replace(/^(GET|POST|PATCH|PUT|DELETE)\s+\/api\/?/i, '')
+    .replace(/[/:._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 
-  return JSON.stringify(metadata, null, 2)
+  if (!cleaned) return 'Activity'
+
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
+}
+
+function formatLogDetails(metadata) {
+  if (
+    !metadata ||
+    typeof metadata !== 'object' ||
+    Array.isArray(metadata) ||
+    Object.keys(metadata).length === 0
+  ) {
+    return 'No extra details for this event.'
+  }
+
+  const details = []
+
+  if (metadata.reason) details.push(`Reason: ${metadata.reason}`)
+  if (metadata.message) details.push(String(metadata.message))
+  if (metadata.oldRole || metadata.newRole) {
+    details.push(
+      `Role changed from ${metadata.oldRole ?? 'previous role'} to ${
+        metadata.newRole ?? 'new role'
+      }.`,
+    )
+  }
+  if (metadata.targetUser?.email || metadata.targetUserEmail) {
+    details.push(`User: ${metadata.targetUser?.email ?? metadata.targetUserEmail}`)
+  }
+
+  return details.length
+    ? details.join('\n')
+    : 'Additional details are saved for this event.'
 }
 
 function getActor(log) {
   return log.actor ?? log.metadata?.actor ?? null
 }
 
+const DEFAULT_PAGE_SIZE = 10
 const LOG_DATE_RANGE_DAYS = {
   '24h': 1,
   '7d': 7,
   '30d': 30,
 }
 
-function isInsideLogDateRange(log, range) {
+function getDateRangeStart(range) {
   const days = LOG_DATE_RANGE_DAYS[range]
 
-  if (!days) return true
-  if (!log.createdAt) return false
+  if (!days) return ''
 
-  return new Date(log.createdAt).getTime() >= Date.now() - days * 24 * 60 * 60 * 1000
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
 }
 
 export function AuditLogs() {
@@ -53,21 +91,17 @@ export function AuditLogs() {
   })
   const [isLoading, setIsLoading] = useState(true)
   const [logs, setLogs] = useState([])
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+  const [pagination, setPagination] = useState(null)
   const organizationId = isSuperAdmin
     ? ''
     : selectedOrganization?.organization.id ?? ''
-  const visibleLogs = useMemo(
-    () =>
-      logs.filter((log) => {
-        const matchesStatus =
-          !filters.status ||
-          (filters.status === 'success' && log.statusCode < 400) ||
-          (filters.status === 'warning' && log.statusCode >= 400)
 
-        return matchesStatus && isInsideLogDateRange(log, filters.dateRange)
-      }),
-    [filters.dateRange, filters.status, logs],
-  )
+  const updateFilters = useCallback((updater) => {
+    setPage(1)
+    setFilters((current) => ({ ...current, ...updater }))
+  }, [])
 
   const loadLogs = useCallback(async () => {
     if (!isSuperAdmin && !organizationId) {
@@ -82,19 +116,40 @@ export function AuditLogs() {
     try {
       const data = await getAuditLogs({
         action: filters.action.trim(),
+        from: getDateRangeStart(filters.dateRange),
         organizationId,
-        page: 1,
-        pageSize: 50,
+        outcome: filters.status,
+        page,
+        pageSize,
         search: filters.search.trim(),
       })
 
+      if (
+        data.pagination &&
+        data.pagination.total > 0 &&
+        data.pagination.page > data.pagination.pageCount
+      ) {
+        setPage(data.pagination.pageCount)
+        return
+      }
+
       setLogs(data.logs ?? [])
+      setPagination(data.pagination ?? null)
     } catch (requestError) {
       setError(requestError)
     } finally {
       setIsLoading(false)
     }
-  }, [filters.action, filters.search, isSuperAdmin, organizationId])
+  }, [
+    filters.action,
+    filters.dateRange,
+    filters.search,
+    filters.status,
+    isSuperAdmin,
+    organizationId,
+    page,
+    pageSize,
+  ])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -129,13 +184,17 @@ export function AuditLogs() {
         <RefreshIconButton label="Refresh audit logs" onClick={() => void loadLogs()} />
       </header>
 
-      {error && <Alert onDismiss={() => setError(null)}>{error.message}</Alert>}
+      {error && (
+        <Alert onDismiss={() => setError(null)}>
+          {getFriendlyErrorMessage(error)}
+        </Alert>
+      )}
 
       <section className="card filter-bar audit-filter-bar">
         <Input
           label="Search logs"
           onChange={(event) =>
-            setFilters((current) => ({ ...current, search: event.target.value }))
+            updateFilters({ search: event.target.value })
           }
           placeholder="user, organization, action..."
           value={filters.search}
@@ -143,16 +202,16 @@ export function AuditLogs() {
         <Input
           label="Action"
           onChange={(event) =>
-            setFilters((current) => ({ ...current, action: event.target.value }))
+            updateFilters({ action: event.target.value })
           }
-          placeholder="POST /api/users"
+          placeholder="invite, role, document..."
           value={filters.action}
         />
         <label className="field">
           <span className="field__label">Outcome</span>
           <select
             onChange={(event) =>
-              setFilters((current) => ({ ...current, status: event.target.value }))
+              updateFilters({ status: event.target.value })
             }
             value={filters.status}
           >
@@ -165,10 +224,9 @@ export function AuditLogs() {
           <span className="field__label">Date</span>
           <select
             onChange={(event) =>
-              setFilters((current) => ({
-                ...current,
+              updateFilters({
                 dateRange: event.target.value,
-              }))
+              })
             }
             value={filters.dateRange}
           >
@@ -184,22 +242,22 @@ export function AuditLogs() {
         <div className="section-heading">
           <div>
             <span className="card__label">Recent events</span>
-            <h2>{visibleLogs.length} records</h2>
+            <h2>{pagination?.total ?? logs.length} records</h2>
           </div>
         </div>
 
         {isLoading ? (
           <Loader label="Loading audit logs..." />
-        ) : visibleLogs.length ? (
+        ) : logs.length ? (
           <div className="data-table" role="table">
             <div className="data-table__row data-table__row--head" role="row">
               <span role="columnheader">When</span>
               <span role="columnheader">Actor</span>
               <span role="columnheader">Action</span>
-              <span role="columnheader">Resource</span>
+              <span role="columnheader">Area</span>
               <span role="columnheader">Status</span>
             </div>
-            {visibleLogs.map((log) => {
+            {logs.map((log) => {
               const actor = getActor(log)
 
               return (
@@ -219,7 +277,7 @@ export function AuditLogs() {
                         </>
                       )}
                     </span>
-                    <code role="cell">{log.action}</code>
+                    <span role="cell">{formatActionLabel(log.action)}</span>
                     <span role="cell">{log.organization?.name ?? log.resource}</span>
                     <span role="cell">
                       <span
@@ -229,11 +287,11 @@ export function AuditLogs() {
                             : 'status-badge--warning'
                         }`}
                       >
-                        {log.statusCode}
+                        {log.statusCode < 400 ? 'Completed' : 'Needs review'}
                       </span>
                     </span>
                   </summary>
-                  <pre className="metadata-block">{formatMetadata(log.metadata)}</pre>
+                  <pre className="metadata-block">{formatLogDetails(log.metadata)}</pre>
                 </details>
               )
             })}
@@ -246,6 +304,17 @@ export function AuditLogs() {
             </div>
           </section>
         )}
+
+        <ListPagination
+          label="Audit log pagination"
+          onPageChange={setPage}
+          onPageSizeChange={(nextPageSize) => {
+            setPageSize(nextPageSize)
+            setPage(1)
+          }}
+          pageSize={pageSize}
+          pagination={pagination}
+        />
       </section>
     </main>
   )

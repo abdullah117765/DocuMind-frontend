@@ -66,6 +66,12 @@ function Icon({ className = '', name, size = 18 }) {
           <path d="M3 6h.01M3 12h.01M3 18h.01" {...commonProps} />
         </>
       )}
+      {name === 'search' && (
+        <>
+          <circle cx="11" cy="11" r="7" {...commonProps} />
+          <path d="m20 20-3.5-3.5" {...commonProps} />
+        </>
+      )}
       {name === 'shield' && (
         <>
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" {...commonProps} />
@@ -133,7 +139,6 @@ export function AuthenticatedLayout({ children }) {
 
   const organizations = access?.organizations ?? []
   const isSuperAdmin = isSuperAdminAccess(user, access)
-  const canSwitchOrganizations = isSuperAdmin || organizations.length > 1
   const displayName = getDisplayName(user)
   const canManageMembers = hasPermission('members.manage')
   const canManageRoles = isSuperAdmin
@@ -156,11 +161,15 @@ export function AuthenticatedLayout({ children }) {
   const currentRoleName = getPrimaryRoleName(currentRoles)
   const canReadDocuments = hasPermission('documents.read')
   const canViewTeam = canManageMembers || hasPermission('analytics.view')
+  const shouldShowOrganizationPeople = canViewTeam && !canAccessPlatformUsers
   const shouldShowSidebarOrganizationSwitcher =
-    canSwitchOrganizations && organizations.length > 0
+    organizations.length > 0
   const shouldShowOrganizationGroup =
     selectedOrganization &&
-    (canReadDocuments || canViewTeam || canManageRoles || canViewOrganizationAuditLogs)
+    (canReadDocuments ||
+      shouldShowOrganizationPeople ||
+      canManageRoles ||
+      canViewOrganizationAuditLogs)
 
   async function handleSignOut() {
     setIsSigningOut(true)
@@ -177,6 +186,57 @@ export function AuthenticatedLayout({ children }) {
     }
   }
 
+  const navigationGroups = [
+    {
+      items: [{ label: 'Dashboard', to: '/dashboard' }],
+      label: 'Main',
+    },
+    shouldShowOrganizationGroup && {
+      items: [
+        canReadDocuments && {
+          label: isSuperAdmin ? 'Upload Documents' : 'Documents',
+          to: '/documents',
+        },
+        canReadDocuments && {
+          label: 'Ask Documents',
+          to: '/documents/search',
+        },
+        shouldShowOrganizationPeople && {
+          label: canManageMembers ? 'People' : 'Team',
+          to: '/organization/members',
+        },
+        canManageRoles && { label: 'Roles', to: '/organization/roles' },
+        canViewOrganizationAuditLogs &&
+          !canAccessAuditLogs && { label: 'Audit Logs', to: '/audit-logs' },
+      ].filter(Boolean),
+      label: 'Organization',
+    },
+    canAccessPlatform && {
+      items: [
+        canAccessPlatformOrganizations && {
+          label: 'Organizations',
+          to: '/platform/organizations',
+        },
+        canAccessPlatformUsers && {
+          label: 'People',
+          to: '/platform/users',
+        },
+        canAccessPlatformDocuments && {
+          label: 'Platform Documents',
+          to: '/platform/documents',
+        },
+        canAccessAuditLogs && { label: 'Audit Logs', to: '/audit-logs' },
+      ].filter(Boolean),
+      label: 'Platform',
+    },
+  ].filter((group) => group && group.items.length > 0)
+  const navigationItems = navigationGroups.flatMap((group) => group.items)
+  const activeMobileRoute = navigationItems.some(
+    (item) => item.to === location.pathname,
+  )
+    ? location.pathname
+    : ''
+
   return (
     <div className="app-shell">
       <aside className="app-sidebar">
@@ -188,6 +248,17 @@ export function AuthenticatedLayout({ children }) {
             <span>DOCUMIND</span>
           </Link>
         </div>
+
+        {shouldShowSidebarOrganizationSwitcher && (
+          <section className="sidebar-workspace-panel" aria-label="Workspace">
+            <OrganizationSwitcher />
+            {currentRoleName && (
+              <div className="sidebar-workspace-meta">
+                <span className="sidebar-role-badge">{currentRoleName}</span>
+              </div>
+            )}
+          </section>
+        )}
 
         <nav aria-label="Primary navigation" className="side-nav">
           <NavItem icon="dashboard" to="/dashboard">
@@ -201,9 +272,14 @@ export function AuthenticatedLayout({ children }) {
                   {isSuperAdmin ? 'Upload Documents' : 'Documents'}
                 </NavItem>
               )}
-              {canViewTeam && (
+              {canReadDocuments && (
+                <NavItem icon="search" to="/documents/search">
+                  Ask Documents
+                </NavItem>
+              )}
+              {shouldShowOrganizationPeople && (
                 <NavItem icon="users" to="/organization/members">
-                  {canManageMembers ? 'Members' : 'Team'}
+                  {canManageMembers ? 'People' : 'Team'}
                 </NavItem>
               )}
               {canManageRoles && (
@@ -228,7 +304,7 @@ export function AuthenticatedLayout({ children }) {
               )}
               {canAccessPlatformUsers && (
                 <NavItem icon="users" to="/platform/users">
-                  Platform Users
+                  People
                 </NavItem>
               )}
               {canAccessPlatformDocuments && (
@@ -243,16 +319,33 @@ export function AuthenticatedLayout({ children }) {
               )}
             </>
           )}
-
-          <NavItem icon="profile" to="/account/profile">
-            Profile
-          </NavItem>
-          <NavItem icon="sessions" to="/account/sessions">
-            Active devices
-          </NavItem>
         </nav>
 
-        <footer className="sidebar-footer">
+        <label className="mobile-route-select">
+          <span>Menu</span>
+          <select
+            aria-label="Mobile navigation"
+            onChange={(event) => {
+              if (event.target.value) {
+                navigate(event.target.value)
+              }
+            }}
+            value={activeMobileRoute}
+          >
+            {!activeMobileRoute && <option value="">Select page</option>}
+            {navigationGroups.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.items.map((item) => (
+                  <option key={`${group.label}-${item.to}`} value={item.to}>
+                    {item.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+
+        <footer className="sidebar-account-panel">
           <div className="profile-menu profile-menu--sidebar">
             <button
               aria-expanded={isProfileOpen}
@@ -263,7 +356,6 @@ export function AuthenticatedLayout({ children }) {
               <span className="profile-avatar">{getInitialsFromUser(user)}</span>
               <span>
                 <strong>{displayName}</strong>
-                <small>{user.email}</small>
               </span>
             </button>
 
@@ -275,7 +367,6 @@ export function AuthenticatedLayout({ children }) {
                   </span>
                   <div>
                     <strong>{displayName}</strong>
-                    <small>{user.email}</small>
                   </div>
                 </div>
                 <Link
@@ -302,24 +393,7 @@ export function AuthenticatedLayout({ children }) {
             )}
           </div>
 
-          {shouldShowSidebarOrganizationSwitcher && (
-            <div className="sidebar-organization-switcher">
-              <OrganizationSwitcher />
-            </div>
-          )}
-
-          <div className="sidebar-footer__meta">
-            {currentRoles.length > 0 && (
-              <span className="sidebar-role-badge">{currentRoleName}</span>
-            )}
-            {selectedOrganization?.organization.name && (
-              <span className="sidebar-org-name">
-                {selectedOrganization.organization.name}
-              </span>
-            )}
-          </div>
-
-          <div className="sidebar-footer__actions">
+          <div className="sidebar-account-actions">
             <button
               className="sidebar-action"
               onClick={toggleTheme}

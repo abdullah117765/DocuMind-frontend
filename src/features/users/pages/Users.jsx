@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
+import { ListPagination } from '../../../shared/components/ListPagination.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
 import { RefreshIconButton } from '../../../shared/components/RefreshIconButton.jsx'
 import { useNotifications } from '../../../shared/useNotifications.js'
@@ -42,6 +43,8 @@ function OrganizationMembershipSummary({ memberships = [] }) {
   )
 }
 
+const DEFAULT_PAGE_SIZE = 10
+
 export function Users() {
   const { user: currentUser } = useAuth()
   const notifications = useNotifications()
@@ -52,8 +55,15 @@ export function Users() {
   })
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [pagination, setPagination] = useState(null)
   const [users, setUsers] = useState([])
+
+  const updateFilters = useCallback((updater) => {
+    setPage(1)
+    setFilters((current) => ({ ...current, ...updater }))
+  }, [])
 
   const loadUsers = useCallback(async () => {
     setError(null)
@@ -61,11 +71,20 @@ export function Users() {
 
     try {
       const userData = await getUsers({
-        page: 1,
-        pageSize: 50,
+        page,
+        pageSize,
         search: filters.search.trim(),
         status: filters.status,
       })
+
+      if (
+        userData.pagination &&
+        userData.pagination.total > 0 &&
+        userData.pagination.page > userData.pagination.pageCount
+      ) {
+        setPage(userData.pagination.pageCount)
+        return
+      }
 
       setUsers(userData.users ?? [])
       setPagination(userData.pagination ?? null)
@@ -74,7 +93,7 @@ export function Users() {
     } finally {
       setIsLoading(false)
     }
-  }, [filters.search, filters.status])
+  }, [filters.search, filters.status, page, pageSize])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -124,7 +143,7 @@ export function Users() {
         <Input
           label="Search users"
           onChange={(event) =>
-            setFilters((current) => ({ ...current, search: event.target.value }))
+            updateFilters({ search: event.target.value })
           }
           placeholder="email or organization"
           value={filters.search}
@@ -133,7 +152,7 @@ export function Users() {
           <span className="field__label">Status</span>
           <select
             onChange={(event) =>
-              setFilters((current) => ({ ...current, status: event.target.value }))
+              updateFilters({ status: event.target.value })
             }
             value={filters.status}
           >
@@ -224,6 +243,17 @@ export function Users() {
             </div>
           </section>
         )}
+
+        <ListPagination
+          label="User pagination"
+          onPageChange={setPage}
+          onPageSizeChange={(nextPageSize) => {
+            setPageSize(nextPageSize)
+            setPage(1)
+          }}
+          pageSize={pageSize}
+          pagination={pagination}
+        />
       </section>
     </main>
   )

@@ -66,6 +66,12 @@ function DashboardIcon({ name }) {
           <path d="M14 2v5h5M9 13h6M9 17h4" {...commonProps} />
         </>
       )}
+      {name === 'search' && (
+        <>
+          <circle cx="11" cy="11" r="7" {...commonProps} />
+          <path d="m20 20-3.5-3.5" {...commonProps} />
+        </>
+      )}
       {name === 'clock' && (
         <>
           <circle cx="12" cy="12" r="9" {...commonProps} />
@@ -290,6 +296,7 @@ export function Dashboard() {
       members: [],
       organizations: [],
       totalDocuments: null,
+      totalOrganizations: null,
       totalUsers: null,
     }
 
@@ -297,8 +304,8 @@ export function Dashboard() {
       if (isSuperAdmin) {
         const requests = await Promise.allSettled([
           canViewPlatformOrganizations
-            ? getPlatformOrganizations()
-            : Promise.resolve([]),
+            ? getPlatformOrganizations({ page: 1, pageSize: 100 })
+            : Promise.resolve({ organizations: [], pagination: null }),
           canViewPlatformUsers
             ? getUsers({ page: 1, pageSize: 5, status: 'all' })
             : Promise.resolve({ pagination: null, users: [] }),
@@ -311,7 +318,10 @@ export function Dashboard() {
         ])
 
         if (requests[0].status === 'fulfilled') {
-          nextState.organizations = requests[0].value ?? []
+          nextState.organizations = requests[0].value?.organizations ?? []
+          nextState.totalOrganizations =
+            requests[0].value?.pagination?.total ??
+            nextState.organizations.length
         }
 
         if (requests[1].status === 'fulfilled') {
@@ -332,10 +342,12 @@ export function Dashboard() {
         }
       } else if (organizationId) {
         const requests = await Promise.allSettled([
-          canManageMembers ? getMembers(organizationId) : Promise.resolve([]),
           canManageMembers
-            ? getOrganizationInvites(organizationId)
-            : Promise.resolve([]),
+            ? getMembers(organizationId, { page: 1, pageSize: 100 })
+            : Promise.resolve({ members: [], pagination: null }),
+          canManageMembers
+            ? getOrganizationInvites(organizationId, { page: 1, pageSize: 100 })
+            : Promise.resolve({ invites: [], pagination: null }),
           canReadDocuments
             ? listOrganizationDocuments(organizationId, { page: 1, pageSize: 5 })
             : Promise.resolve({ documents: [], pagination: null }),
@@ -345,11 +357,11 @@ export function Dashboard() {
         ])
 
         if (requests[0].status === 'fulfilled') {
-          nextState.members = requests[0].value ?? []
+          nextState.members = requests[0].value?.members ?? []
         }
 
         if (requests[1].status === 'fulfilled') {
-          nextState.invites = requests[1].value ?? []
+          nextState.invites = requests[1].value?.invites ?? []
         }
 
         if (requests[2].status === 'fulfilled') {
@@ -433,7 +445,7 @@ export function Dashboard() {
           <StatCard
             icon="building"
             label="Total Organizations"
-            value={dashboardState.organizations.length}
+            value={dashboardState.totalOrganizations}
           />
           <StatCard
             icon="trend"
@@ -467,6 +479,11 @@ export function Dashboard() {
             {selectedOrganization && canReadDocuments && (
               <Link className="button button--secondary button--link" to="/documents">
                 Upload
+              </Link>
+            )}
+            {selectedOrganization && canReadDocuments && (
+              <Link className="button button--secondary button--link" to="/documents/search">
+                <DashboardIcon name="search" /> Ask
               </Link>
             )}
             <Link className="button button--secondary button--link" to="/audit-logs">
@@ -581,6 +598,11 @@ export function Dashboard() {
           {canReadDocuments && (
             <Link className="button button--secondary button--link" to="/documents">
               Upload
+            </Link>
+          )}
+          {canReadDocuments && (
+            <Link className="button button--secondary button--link" to="/documents/search">
+              <DashboardIcon name="search" /> Ask
             </Link>
           )}
           <Link className="button button--secondary button--link" to="/account/sessions">

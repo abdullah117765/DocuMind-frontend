@@ -93,10 +93,9 @@ export function RoleForm({
         </span>
       </label>
       <div>
-        <span className="field__label">Permissions</span>
+        <span className="field__label">Access</span>
         <p className="permission-selector__hint">
-          Permissions come from the backend catalog and are saved as a complete
-          replacement set.
+          Choose what people with this role should be allowed to do.
         </p>
         <PermissionSelector
           disabled={isSaving}

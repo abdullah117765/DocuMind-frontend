@@ -56,6 +56,13 @@ export function getStagedFileContentUrl(organizationId, sessionId, fileId) {
   )}`
 }
 
+export function getUploadJobEventsUrl(organizationId, jobId) {
+  return `${API_BASE_URL}${organizationDocumentPath(
+    organizationId,
+    `/upload-jobs/${encode(jobId)}/events`,
+  )}`
+}
+
 export function getPlatformDocumentContentUrl(documentId) {
   return `${API_BASE_URL}${platformDocumentPath(`/${encode(documentId)}/content`)}`
 }
@@ -70,6 +77,50 @@ export async function listOrganizationDocuments(organizationId, params = {}) {
   )
 
   return getResponseData(response)
+}
+
+export async function searchRagDocuments(organizationId, payload) {
+  const response = await apiRequest(organizationDocumentPath(organizationId, '/rag/search'), {
+    body: payload,
+    cache: 'no-store',
+    method: 'POST',
+    requiresAuth: true,
+  })
+
+  return getResponseData(response)
+}
+
+export async function askRagDocuments(organizationId, payload) {
+  const response = await apiRequest(organizationDocumentPath(organizationId, '/rag/ask'), {
+    body: payload,
+    cache: 'no-store',
+    method: 'POST',
+    requiresAuth: true,
+  })
+
+  return getResponseData(response)
+}
+
+export async function getRagDocumentStatuses(organizationId) {
+  const response = await apiRequest(organizationDocumentPath(organizationId, '/rag/status'), {
+    cache: 'no-store',
+    requiresAuth: true,
+  })
+
+  return getResponseData(response).documents
+}
+
+export async function reindexRagDocuments(organizationId, payload = {}) {
+  const response = await csrfRequest(
+    organizationDocumentPath(organizationId, '/rag/reindex'),
+    {
+      body: payload,
+      method: 'POST',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).documents
 }
 
 export async function listPlatformDocuments(params = {}) {
@@ -179,7 +230,7 @@ export async function commitUploadSession(organizationId, sessionId) {
     },
   )
 
-  return getResponseData(response)
+  return getResponseData(response).uploadJob
 }
 
 export async function uploadDocumentVersion(organizationId, documentId, file) {

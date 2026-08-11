@@ -8,7 +8,7 @@ import { useAccessControl } from '../../access-control/hooks/useAccessControl.js
 import { useAuth } from '../hooks/useAuth.js'
 
 export function Profile() {
-  const { session, user } = useAuth()
+  const { user } = useAuth()
   const {
     access,
     effectiveRoles,
@@ -21,7 +21,7 @@ export function Profile() {
     ? 'Platform only'
     : selectedOrganization?.organization.name ?? 'No organization'
   const accountScopeDescription = isSuperAdmin
-    ? 'Super Admin can oversee organizations without becoming a tenant member.'
+    ? 'Super Admin can oversee organizations without joining them as a member.'
     : selectedOrganization
       ? getPrimaryRoleName(effectiveRoles)
       : 'You are not assigned to an organization yet.'
@@ -60,7 +60,7 @@ export function Profile() {
           <span className="card__label">Current session</span>
           <h2>Signed in</h2>
           <p className="muted-copy">
-            Session ID: <code>{session?.id ?? 'Not available'}</code>
+            Your account is active on this device.
           </p>
         </article>
       </section>
@@ -69,13 +69,12 @@ export function Profile() {
         <div className="section-heading">
           <div>
             <p className="eyebrow">Security note</p>
-            <h2>Permissions are enforced by the backend</h2>
+            <h2>Your access is protected</h2>
           </div>
         </div>
         <p className="muted-copy">
-          This profile shows your role and account state. Internal permission
-          codes stay hidden from normal profile views and are checked server-side
-          on each protected operation.
+          This profile shows your role and account state. Access is checked
+          securely whenever you open, update, or manage protected information.
         </p>
       </section>
     </main>
