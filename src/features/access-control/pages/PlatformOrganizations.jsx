@@ -11,6 +11,7 @@ import { getFriendlyErrorMessage } from '../../../shared/utils/errorMessages.js'
 import { useAccessControl } from '../hooks/useAccessControl.js'
 import {
   createOrganization,
+  deleteOrganization,
   getPlatformOrganizations,
 } from '../services/accessControlApi.js'
 
@@ -88,21 +89,36 @@ function OrganizationIcon({ name, size = 16 }) {
           <path d="M5 5h6M5 5v14h14v-6" {...commonProps} />
         </>
       )}
+      {name === 'trash' && (
+        <>
+          <path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15" {...commonProps} />
+          <path d="M10 11v6M14 11v6" {...commonProps} />
+        </>
+      )}
     </svg>
   )
 }
 
-function OrganizationActionIconButton({ label, onClick }) {
+function OrganizationActionIconButton({
+  disabled = false,
+  icon = 'open',
+  label,
+  onClick,
+  tone = 'default',
+}) {
   return (
     <button
       aria-label={label}
-      className="access-icon-button"
+      className={`access-icon-button ${
+        tone !== 'default' ? `access-icon-button--${tone}` : ''
+      }`.trim()}
       data-tooltip={label}
+      disabled={disabled}
       onClick={onClick}
       title={label}
       type="button"
     >
-      <OrganizationIcon name="open" />
+      <OrganizationIcon name={icon} />
     </button>
   )
 }
@@ -111,11 +127,14 @@ export function PlatformOrganizations() {
   const {
     hasPlatformPermission,
     refreshAccess,
+    selectedOrganizationId,
     setSelectedOrganizationId,
     status,
   } = useAccessControl()
   const notifications = useNotifications()
   const [actionError, setActionError] = useState(null)
+  const [deleteConfirmation, setDeleteConfirmation] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState(null)
   const [form, setForm] = useState({ name: '', slug: '' })
   const [formErrors, setFormErrors] = useState({})
   const [filters, setFilters] = useState({
@@ -124,6 +143,7 @@ export function PlatformOrganizations() {
     status: '',
   })
   const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [notice, setNotice] = useState('')
@@ -149,6 +169,34 @@ export function PlatformOrganizations() {
     if (isSaving) return
     resetCreateForm()
     setIsCreateOpen(false)
+  }
+
+  function closeDeleteModal() {
+    if (isDeleting) return
+    setDeleteTarget(null)
+    setDeleteConfirmation('')
+  }
+
+  function openDeleteModal(organization) {
+    setActionError(null)
+    setNotice('')
+    setDeleteTarget(organization)
+    setDeleteConfirmation('')
+  }
+
+  function confirmationMatchesDeleteTarget() {
+    if (!deleteTarget) return false
+
+    const confirmation = deleteConfirmation.trim().toLowerCase()
+
+    const organizationName = deleteTarget.name.trim().toLowerCase()
+    const organizationSlug = (deleteTarget.slug ?? '').trim().toLowerCase()
+
+    return (
+      Boolean(confirmation) &&
+      (confirmation === organizationName ||
+        (Boolean(organizationSlug) && confirmation === organizationSlug))
+    )
   }
 
   const updateFilters = useCallback((updater) => {
@@ -247,6 +295,40 @@ export function PlatformOrganizations() {
       notifications.error(getFriendlyErrorMessage(error))
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleDeleteOrganization(event) {
+    event.preventDefault()
+
+    if (!deleteTarget || !confirmationMatchesDeleteTarget()) return
+
+    setIsDeleting(true)
+    setActionError(null)
+    setNotice('')
+
+    try {
+      await deleteOrganization(deleteTarget.id, deleteConfirmation.trim())
+
+      const deletedName = deleteTarget.name
+      setNotice(`${deletedName} was permanently deleted.`)
+      notifications.success(`${deletedName} was deleted.`)
+      setDeleteTarget(null)
+      setDeleteConfirmation('')
+
+      if (selectedOrganizationId === deleteTarget.id) {
+        setSelectedOrganizationId(null)
+      }
+
+      await Promise.all([
+        loadOrganizations(),
+        refreshAccess().catch(() => null),
+      ])
+    } catch (error) {
+      setActionError(error)
+      notifications.error(getFriendlyErrorMessage(error))
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -413,6 +495,13 @@ export function PlatformOrganizations() {
                       label="Open organization"
                       onClick={() => setSelectedOrganizationId(organization.id)}
                     />
+                    <OrganizationActionIconButton
+                      disabled={isDeleting}
+                      icon="trash"
+                      label={`Delete ${organization.name}`}
+                      onClick={() => openDeleteModal(organization)}
+                      tone="danger"
+                    />
                   </span>
                 </div>
               ))}
@@ -496,6 +585,54 @@ export function PlatformOrganizations() {
             </Button>
             <Button disabled={isSaving} type="submit">
               {isSaving ? 'Creating...' : 'Create organization'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(deleteTarget)}
+        onClose={closeDeleteModal}
+        title="Delete organization?"
+      >
+        {actionError && (
+          <Alert onDismiss={() => setActionError(null)}>
+            {getFriendlyErrorMessage(actionError)}
+          </Alert>
+        )}
+        <form className="form" onSubmit={handleDeleteOrganization}>
+          <div className="delete-confirmation">
+            <span className="card__label">Permanent action</span>
+            <p>
+              This will permanently delete <strong>{deleteTarget?.name}</strong>,
+              its members, invitations, documents, and related access records.
+              This action cannot be undone.
+            </p>
+          </div>
+          <Input
+            autoComplete="off"
+            error={
+              deleteConfirmation && !confirmationMatchesDeleteTarget()
+                ? 'Type the organization name or URL name exactly.'
+                : ''
+            }
+            hint={`Type "${deleteTarget?.name ?? ''}" or "${deleteTarget?.slug ?? ''}" to confirm.`}
+            label="Confirm deletion"
+            onChange={(event) => setDeleteConfirmation(event.target.value)}
+            placeholder={deleteTarget?.slug ?? 'organization-url-name'}
+            required
+            value={deleteConfirmation}
+          />
+          <div className="form-actions">
+            <Button disabled={isDeleting} onClick={closeDeleteModal} variant="secondary">
+              Cancel
+            </Button>
+            <Button
+              disabled={isDeleting || !confirmationMatchesDeleteTarget()}
+              type="submit"
+              variant="danger"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete organization'}
             </Button>
           </div>
         </form>

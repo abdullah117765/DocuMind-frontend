@@ -434,7 +434,7 @@ function PeopleAccessTable({
                   )}
                   <ActionIconButton
                     disabled={isSaving || isSelf}
-                    icon={row.raw.isActive ? 'pause' : 'play'}
+                    icon={row.raw.isActive ? 'ban' : 'check'}
                     label={row.raw.isActive ? 'Deactivate account' : 'Reactivate account'}
                     onClick={() => onPlatformToggle(row.raw)}
                     tone={row.raw.isActive ? 'danger' : 'success'}

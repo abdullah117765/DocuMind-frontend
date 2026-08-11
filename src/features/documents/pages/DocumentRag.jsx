@@ -19,7 +19,7 @@ import {
 const MAX_SELECTED_DOCUMENTS = 50
 const DEFAULT_DOCUMENT_PAGE_SIZE = 10
 const RAG_STATUS_LABELS = {
-  FAILED: 'Failed',
+  FAILED: 'Needs attention',
   INDEXED: 'Ready',
   INDEXING: 'Preparing',
   NOT_INDEXED: 'Needs preparation',
@@ -297,6 +297,19 @@ function buildRagPayload({ query, scope, selectedDocumentIds }) {
   }
 }
 
+function mergeDocumentStatuses(currentStatuses, updatedStatuses) {
+  const byDocumentId = new Map(
+    currentStatuses.map((statusView) => [statusView.documentId, statusView]),
+  )
+
+  for (const statusView of updatedStatuses) {
+    if (!statusView?.documentId) continue
+    byDocumentId.set(statusView.documentId, statusView)
+  }
+
+  return [...byDocumentId.values()]
+}
+
 function RagStatusIndicator({ statusView }) {
   const status = statusView?.status ?? 'NOT_INDEXED'
   const progress = getRagProgress(statusView)
@@ -339,15 +352,24 @@ function getDocumentAiErrorMessage(error, fallback) {
   const lowerMessage = message.toLowerCase()
   const technicalMarkers = [
     'backend',
+    'chunk',
     'document ai service',
+    'embedding',
     'fastapi',
     'hmac',
     'index',
+    'ocr',
+    'pymupdf',
     'qdrant',
     'rag',
     'serviceunavailable',
+    'tesseract',
     'vector',
   ]
+
+  if (lowerMessage.includes('image text extraction failed')) {
+    return 'We could not read text from this image. Try a clearer image or upload a text-based document.'
+  }
 
   if (!message || technicalMarkers.some((marker) => lowerMessage.includes(marker))) {
     return fallback
@@ -660,7 +682,9 @@ export function DocumentRag() {
         documentIds: targetIds.length ? targetIds : undefined,
       })
 
-      setDocumentStatuses(statuses ?? [])
+      setDocumentStatuses((currentStatuses) =>
+        mergeDocumentStatuses(currentStatuses, statuses ?? []),
+      )
       const workingCount = (statuses ?? []).filter((statusView) =>
         isRagStatusWorking(statusView.status),
       ).length

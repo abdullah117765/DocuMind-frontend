@@ -56,6 +56,19 @@ export async function createOrganization(organization) {
   return getResponseData(response).organization
 }
 
+export async function deleteOrganization(organizationId, confirmation) {
+  const response = await csrfRequest(
+    `/platform/organizations/${encodeURIComponent(organizationId)}`,
+    {
+      body: { confirmation },
+      method: 'DELETE',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response)
+}
+
 export async function getOrganizationInvites(organizationId, params = {}) {
   const response = await apiRequest(
     organizationPath(organizationId, `/invites${queryString(params)}`),

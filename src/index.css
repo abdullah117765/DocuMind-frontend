@@ -1344,7 +1344,29 @@ p {
 
 .organization-actions {
   display: flex;
+  align-items: center;
+  gap: 0.4rem;
   justify-content: flex-start;
+}
+
+.delete-confirmation {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border));
+  border-radius: 0.85rem;
+  color: var(--text);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+}
+
+.delete-confirmation p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.delete-confirmation strong {
+  color: var(--heading);
 }
 
 .role-grid {

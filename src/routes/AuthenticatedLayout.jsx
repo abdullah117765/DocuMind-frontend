@@ -163,7 +163,7 @@ export function AuthenticatedLayout({ children }) {
   const canViewTeam = canManageMembers || hasPermission('analytics.view')
   const shouldShowOrganizationPeople = canViewTeam && !canAccessPlatformUsers
   const shouldShowSidebarOrganizationSwitcher =
-    organizations.length > 0
+    isSuperAdmin && organizations.length > 0
   const shouldShowOrganizationGroup =
     selectedOrganization &&
     (canReadDocuments ||
