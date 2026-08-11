@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Alert } from '../../../shared/components/Alert.jsx'
+import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
 import { ListPagination } from '../../../shared/components/ListPagination.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
 import { RefreshIconButton } from '../../../shared/components/RefreshIconButton.jsx'
+import { useNotifications } from '../../../shared/useNotifications.js'
 import { isSuperAdminAccess } from '../../../shared/utils/accessDisplay.js'
 import { getFriendlyErrorMessage } from '../../../shared/utils/errorMessages.js'
 import { useAccessControl } from '../../access-control/hooks/useAccessControl.js'
 import { useAuth } from '../../auth/hooks/useAuth.js'
-import { getAuditLogs } from '../services/auditApi.js'
+import { downloadAuditLogsText, getAuditLogs } from '../services/auditApi.js'
 
 function formatDate(value) {
   return new Intl.DateTimeFormat(undefined, {
@@ -63,6 +65,46 @@ function getActor(log) {
   return log.actor ?? log.metadata?.actor ?? null
 }
 
+function DownloadIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height="16"
+      viewBox="0 0 24 24"
+      width="16"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M12 3v11m0 0 4-4m-4 4-4-4"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+      <path
+        d="M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="2"
+      />
+    </svg>
+  )
+}
+
+function saveTextFile(filename, text) {
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+
+  link.href = objectUrl
+  link.download = filename
+  document.body.append(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
 const DEFAULT_PAGE_SIZE = 10
 const LOG_DATE_RANGE_DAYS = {
   '24h': 1,
@@ -80,6 +122,7 @@ function getDateRangeStart(range) {
 
 export function AuditLogs() {
   const { access, selectedOrganization, status } = useAccessControl()
+  const notifications = useNotifications()
   const { user } = useAuth()
   const isSuperAdmin = isSuperAdminAccess(user, access)
   const [error, setError] = useState(null)
@@ -90,6 +133,7 @@ export function AuditLogs() {
     status: '',
   })
   const [isLoading, setIsLoading] = useState(true)
+  const [isDownloading, setIsDownloading] = useState(false)
   const [logs, setLogs] = useState([])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
@@ -103,6 +147,23 @@ export function AuditLogs() {
     setFilters((current) => ({ ...current, ...updater }))
   }, [])
 
+  const getAuditLogFilterParams = useCallback(
+    () => ({
+      action: filters.action.trim(),
+      from: getDateRangeStart(filters.dateRange),
+      organizationId,
+      outcome: filters.status,
+      search: filters.search.trim(),
+    }),
+    [
+      filters.action,
+      filters.dateRange,
+      filters.search,
+      filters.status,
+      organizationId,
+    ],
+  )
+
   const loadLogs = useCallback(async () => {
     if (!isSuperAdmin && !organizationId) {
       setLogs([])
@@ -115,13 +176,9 @@ export function AuditLogs() {
 
     try {
       const data = await getAuditLogs({
-        action: filters.action.trim(),
-        from: getDateRangeStart(filters.dateRange),
-        organizationId,
-        outcome: filters.status,
+        ...getAuditLogFilterParams(),
         page,
         pageSize,
-        search: filters.search.trim(),
       })
 
       if (
@@ -141,14 +198,42 @@ export function AuditLogs() {
       setIsLoading(false)
     }
   }, [
-    filters.action,
-    filters.dateRange,
-    filters.search,
-    filters.status,
+    getAuditLogFilterParams,
     isSuperAdmin,
     organizationId,
     page,
     pageSize,
+  ])
+
+  const handleDownloadLogs = useCallback(async () => {
+    if (!isSuperAdmin && !organizationId) {
+      notifications.info('Select an organization before downloading audit logs.')
+      return
+    }
+
+    setIsDownloading(true)
+    setError(null)
+
+    try {
+      const exportResult = await downloadAuditLogsText(getAuditLogFilterParams())
+      saveTextFile(exportResult.filename, exportResult.text)
+      notifications.success('Audit logs downloaded as a text file.')
+    } catch (requestError) {
+      setError(requestError)
+      notifications.error(
+        getFriendlyErrorMessage(
+          requestError,
+          'We could not download audit logs. Please try again.',
+        ),
+      )
+    } finally {
+      setIsDownloading(false)
+    }
+  }, [
+    getAuditLogFilterParams,
+    isSuperAdmin,
+    notifications,
+    organizationId,
   ])
 
   useEffect(() => {
@@ -181,7 +266,18 @@ export function AuditLogs() {
               : `Review state-changing actions for ${selectedOrganization?.organization.name}.`}
           </p>
         </div>
-        <RefreshIconButton label="Refresh audit logs" onClick={() => void loadLogs()} />
+        <div className="page-header__actions">
+          <Button
+            className="button--compact"
+            disabled={isDownloading || isLoading}
+            onClick={() => void handleDownloadLogs()}
+            variant="secondary"
+          >
+            <DownloadIcon />
+            {isDownloading ? 'Downloading...' : 'Download TXT'}
+          </Button>
+          <RefreshIconButton label="Refresh audit logs" onClick={() => void loadLogs()} />
+        </div>
       </header>
 
       {error && (

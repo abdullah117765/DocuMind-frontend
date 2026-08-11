@@ -9,8 +9,11 @@ import { useNotifications } from '../../../shared/useNotifications.js'
 import { useAccessControl } from '../../access-control/hooks/useAccessControl.js'
 import {
   askRagDocuments,
+  deleteRagChat,
+  getRagChat,
   getOrganizationDocumentContentUrl,
   getRagDocumentStatuses,
+  listRagChats,
   listOrganizationDocuments,
   reindexRagDocuments,
   searchRagDocuments,
@@ -77,6 +80,31 @@ function RagIcon({ name, size = 18 }) {
           <path d="M18 3v5h-5" {...commonProps} />
           <path d="M21 12a9 9 0 0 1-15.2 6.5" {...commonProps} />
           <path d="M6 21v-5h5" {...commonProps} />
+        </>
+      )}
+      {name === 'plus' && (
+        <>
+          <path d="M12 5v14M5 12h14" {...commonProps} />
+        </>
+      )}
+      {name === 'trash' && (
+        <>
+          <path d="M3 6h18" {...commonProps} />
+          <path d="M8 6V4h8v2" {...commonProps} />
+          <path d="M19 6l-1 14H6L5 6" {...commonProps} />
+        </>
+      )}
+      {name === 'history' && (
+        <>
+          <path d="M3 12a9 9 0 1 0 3-6.7" {...commonProps} />
+          <path d="M3 4v5h5" {...commonProps} />
+          <path d="M12 7v5l3 2" {...commonProps} />
+        </>
+      )}
+      {name === 'quote' && (
+        <>
+          <path d="M9 7H5v6h4v4l3-4V7Z" {...commonProps} />
+          <path d="M19 7h-4v6h4v4l3-4V7Z" {...commonProps} />
         </>
       )}
     </svg>
@@ -157,6 +185,10 @@ function formatProcessingTime(value) {
   return `${(numericValue / 1000).toFixed(1)} s`
 }
 
+function cleanUiText(value = '') {
+  return String(value).replace(/\u00c2\u00b7/g, '·')
+}
+
 function normalizeAnswerMarkdown(text = '') {
   return String(text)
     .replace(/\r\n/g, '\n')
@@ -213,50 +245,120 @@ function AnswerMarkdown({ text }) {
   )
 }
 
+function getSourceDocumentId(source) {
+  return source?.document_id ?? source?.documentId ?? ''
+}
+
+function getSourceDocumentName(source) {
+  return (
+    source?.document_name ||
+    source?.documentName ||
+    source?.original_filename ||
+    source?.originalFilename ||
+    'Document'
+  )
+}
+
+function getSourceOriginalFilename(source) {
+  return source?.original_filename || source?.originalFilename || ''
+}
+
+function getSourceFileType(source) {
+  return source?.file_type || source?.fileType || source?.extension || 'DOC'
+}
+
+function getSourceVersion(source) {
+  return source?.version_number ?? source?.versionNumber ?? null
+}
+
+function getSourceScore(source) {
+  const score = Number(source?.score)
+
+  return Number.isFinite(score) ? score : null
+}
+
+function getSourceLocationLabel(source) {
+  const directLabel = source?.location_label || source?.locationLabel
+
+  if (typeof directLabel === 'string' && directLabel.trim()) {
+    return directLabel.trim()
+  }
+
+  const pageNumber = source?.page_number ?? source?.pageNumber
+  if (pageNumber) return `Page ${pageNumber}`
+
+  const slideNumber = source?.slide_number ?? source?.slideNumber
+  if (slideNumber) return `Slide ${slideNumber}`
+
+  const sheetName = source?.sheet_name ?? source?.sheetName
+  const lineStart = source?.line_start ?? source?.lineStart
+  const lineEnd = source?.line_end ?? source?.lineEnd
+
+  if (sheetName && lineStart && lineEnd) {
+    return `${sheetName}, lines ${lineStart}-${lineEnd}`
+  }
+
+  if (lineStart && lineEnd) {
+    return lineStart === lineEnd
+      ? `Line ${lineStart}`
+      : `Lines ${lineStart}-${lineEnd}`
+  }
+
+  const sectionTitle = source?.section_title ?? source?.sectionTitle
+  if (sectionTitle) return sectionTitle
+
+  return 'Relevant section'
+}
+
+function getSourceDisplayLabel(source) {
+  return [
+    getSourceDocumentName(source),
+    getSourceLocationLabel(source),
+  ].join(' - ')
+}
+
 function getSourceDocuments(response) {
   const rawSources = [
     ...(response?.sources ?? []),
     ...(response?.search_results ?? []),
     ...(response?.results ?? []),
   ]
-  const byDocument = new Map()
+  const byLocation = new Map()
 
   for (const source of rawSources) {
-    if (!source?.document_id) continue
+    const documentId = getSourceDocumentId(source)
+    if (!documentId) continue
 
-    const existing = byDocument.get(source.document_id)
-    const nextScore = Number(source.score)
-    const existingScore = Number(existing?.score)
+    const locationLabel = getSourceLocationLabel(source)
+    const locationKey = [
+      documentId,
+      locationLabel,
+      source.chunk_index ?? source.chunkIndex ?? '',
+    ].join(':')
+    const existing = byLocation.get(locationKey)
+    const nextScore = getSourceScore(source) ?? 0
+    const existingScore = getSourceScore(existing) ?? 0
 
-    if (
-      !existing ||
-      (Number.isFinite(nextScore) ? nextScore : 0) >
-        (Number.isFinite(existingScore) ? existingScore : 0)
-    ) {
-      byDocument.set(source.document_id, source)
+    if (!existing || nextScore > existingScore) {
+      byLocation.set(locationKey, source)
     }
   }
 
-  return [...byDocument.values()].sort(
-    (left, right) =>
-      (Number.isFinite(Number(right.score)) ? Number(right.score) : 0) -
-      (Number.isFinite(Number(left.score)) ? Number(left.score) : 0),
-  )
+  return [...byLocation.values()]
+    .sort((left, right) => (getSourceScore(right) ?? 0) - (getSourceScore(left) ?? 0))
+    .slice(0, 10)
 }
 
 function SourceDocumentCard({ organizationId, result }) {
-  const documentName =
-    result.document_name || result.original_filename || 'Document'
-  const fileType =
-    result.file_type || result.fileType || result.extension || 'DOC'
-  const pageLabel =
-    result.page_number || result.pageNumber
-      ? `Page ${result.page_number ?? result.pageNumber}`
-      : null
+  const documentId = getSourceDocumentId(result)
+  const documentName = getSourceDocumentName(result)
+  const fileType = getSourceFileType(result)
+  const locationLabel = getSourceLocationLabel(result)
+  const score = getSourceScore(result)
   const detail = [
-    result.original_filename,
-    pageLabel,
-    result.version_number ? `Version ${result.version_number}` : null,
+    getSourceOriginalFilename(result),
+    locationLabel,
+    getSourceVersion(result) ? `Version ${getSourceVersion(result)}` : null,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -270,27 +372,187 @@ function SourceDocumentCard({ organizationId, result }) {
         <div>
           <strong title={documentName}>{documentName}</strong>
           <small>
-            {detail || 'Used for this answer'}
+            {cleanUiText(detail) || 'Used for this answer'}
           </small>
         </div>
-        {Number.isFinite(Number(result.score)) && (
-          <span className="status-badge">{getScoreLabel(result.score)}</span>
+        {score !== null && (
+          <span className="status-badge">{getScoreLabel(score)}</span>
         )}
       </div>
-      <a
-        className="rag-source-link"
-        href={getOrganizationDocumentContentUrl(organizationId, result.document_id)}
-        rel="noreferrer"
-        target="_blank"
-      >
-        <RagIcon name="open" size={14} /> Open file
-      </a>
+      {documentId && (
+        <a
+          className="rag-source-link"
+          href={getOrganizationDocumentContentUrl(organizationId, documentId)}
+          rel="noreferrer"
+          target="_blank"
+        >
+          <RagIcon name="open" size={14} /> Open file
+        </a>
+      )}
     </article>
   )
 }
 
-function buildRagPayload({ query, scope, selectedDocumentIds }) {
+function SourcePill({ organizationId, source, index }) {
+  const sourceDocumentId = getSourceDocumentId(source)
+  const label = getSourceDisplayLabel(source)
+
+  if (!sourceDocumentId) {
+    return (
+      <span
+        className="rag-source-pill"
+        key={`${source.id ?? label}-${index}`}
+        title={label}
+      >
+        {label}
+      </span>
+    )
+  }
+
+  return (
+    <a
+      className="rag-source-pill"
+      href={getOrganizationDocumentContentUrl(organizationId, sourceDocumentId)}
+      key={`${sourceDocumentId}-${getSourceLocationLabel(source)}-${index}`}
+      rel="noreferrer"
+      title={label}
+      target="_blank"
+    >
+      {label}
+    </a>
+  )
+}
+
+function CitationToggle({ organizationId, sources }) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  if (!sources.length) return null
+
+  return (
+    <div className="rag-citations">
+      <button
+        className="rag-citation-button"
+        onClick={() => setIsOpen((current) => !current)}
+        type="button"
+      >
+        <RagIcon name="quote" size={14} />
+        {isOpen ? 'Hide citations' : `Show citations (${sources.length})`}
+      </button>
+
+      {isOpen && (
+        <div className="rag-message__sources" aria-label="Answer citations">
+          {sources.map((source, index) => (
+            <SourcePill
+              index={index}
+              key={`${getSourceDocumentId(source)}-${getSourceLocationLabel(source)}-${index}`}
+              organizationId={organizationId}
+              source={source}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ChatMessage({ message, organizationId }) {
+  const isUser = message.role === 'USER'
+  const sources = getSourceDocuments({ sources: message.sources ?? [] })
+
+  return (
+    <article
+      className={`rag-message ${isUser ? 'rag-message--user' : 'rag-message--assistant'}`}
+    >
+      <div className="rag-message__meta">
+        <strong>{isUser ? 'You' : 'Documind AI'}</strong>
+        <span>{formatDate(message.createdAt)}</span>
+      </div>
+      <div className="rag-message__bubble">
+        {isUser ? <p>{message.content}</p> : <AnswerMarkdown text={message.content} />}
+      </div>
+      {!isUser && (
+        <CitationToggle organizationId={organizationId} sources={sources} />
+      )}
+      {false && !isUser && sources.length > 0 && (
+        <div className="rag-message__sources" aria-label="Answer sources">
+          {sources.map((source, index) => {
+            const sourceDocumentId = getSourceDocumentId(source)
+            const label = [
+              getSourceDocumentName(source),
+              getSourceLocationLabel(source),
+            ].join(' — ')
+
+            if (!sourceDocumentId) {
+              return (
+                <span
+                  className="rag-source-pill"
+                  key={`${source.id ?? label}-${index}`}
+                  title={label}
+                >
+                  {label}
+                </span>
+              )
+            }
+
+            return (
+              <a
+                className="rag-source-pill"
+                href={getOrganizationDocumentContentUrl(
+                  organizationId,
+                  sourceDocumentId,
+                )}
+                key={`${sourceDocumentId}-${getSourceLocationLabel(source)}-${index}`}
+                rel="noreferrer"
+                title={label}
+                target="_blank"
+              >
+                {label}
+              </a>
+            )
+          })}
+        </div>
+      )}
+    </article>
+  )
+}
+
+function getFocusedChatMessages(messages = []) {
+  if (!messages.length) {
+    return {
+      latestMessages: [],
+      previousMessages: [],
+    }
+  }
+
+  let latestAnswerIndex = -1
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === 'ASSISTANT') {
+      latestAnswerIndex = index
+      break
+    }
+  }
+
+  const endIndex = latestAnswerIndex >= 0 ? latestAnswerIndex : messages.length - 1
+  const startIndex =
+    endIndex > 0 &&
+    messages[endIndex]?.role === 'ASSISTANT' &&
+    messages[endIndex - 1]?.role === 'USER'
+      ? endIndex - 1
+      : endIndex
+
   return {
+    latestMessages: messages.slice(startIndex, endIndex + 1),
+    previousMessages: [
+      ...messages.slice(0, startIndex),
+      ...messages.slice(endIndex + 1),
+    ],
+  }
+}
+
+function buildRagPayload({ query, scope, selectedDocumentIds, chatSessionId }) {
+  return {
+    chatSessionId: chatSessionId || undefined,
     documentIds: scope === 'selected' ? selectedDocumentIds : undefined,
     query,
     scope,
@@ -408,6 +670,11 @@ export function DocumentRag() {
   const [scope, setScope] = useState('selected')
   const [searchResponse, setSearchResponse] = useState(null)
   const [selectedDocumentIds, setSelectedDocumentIds] = useState([])
+  const [chatSessions, setChatSessions] = useState([])
+  const [chatMessages, setChatMessages] = useState([])
+  const [currentChatId, setCurrentChatId] = useState('')
+  const [isChatsLoading, setIsChatsLoading] = useState(false)
+  const [isOpeningChat, setIsOpeningChat] = useState(false)
 
   const statusByDocumentId = useMemo(
     () =>
@@ -456,6 +723,14 @@ export function DocumentRag() {
     (statusView) => !isRagStatusReady(statusView.status),
   ).length
   const askAiProcessing = isSearching && resultMode === 'ask'
+  const currentChat = useMemo(
+    () => chatSessions.find((chat) => chat.id === currentChatId) ?? null,
+    [chatSessions, currentChatId],
+  )
+  const focusedChat = useMemo(
+    () => getFocusedChatMessages(chatMessages),
+    [chatMessages],
+  )
 
   const loadRagData = useCallback(async () => {
     if (!organizationId || !canReadDocuments) return
@@ -517,6 +792,28 @@ export function DocumentRag() {
     }
   }, [canReadDocuments, organizationId])
 
+  const loadRagChats = useCallback(async () => {
+    if (!organizationId || !canAskDocuments) {
+      setChatSessions([])
+      return
+    }
+
+    setIsChatsLoading(true)
+
+    try {
+      setChatSessions(await listRagChats(organizationId))
+    } catch (requestError) {
+      notifications.error(
+        getDocumentAiErrorMessage(
+          requestError,
+          'We could not load your chat history. Refresh the page and try again.',
+        ),
+      )
+    } finally {
+      setIsChatsLoading(false)
+    }
+  }, [canAskDocuments, notifications, organizationId])
+
   useEffect(() => {
     if (status === 'ready') {
       const handle = window.setTimeout(() => {
@@ -526,6 +823,19 @@ export function DocumentRag() {
       return () => window.clearTimeout(handle)
     }
   }, [loadRagData, status])
+
+  useEffect(() => {
+    setCurrentChatId('')
+    setChatMessages([])
+    setSearchResponse(null)
+    setQuery('')
+  }, [organizationId])
+
+  useEffect(() => {
+    if (status === 'ready') {
+      void loadRagChats()
+    }
+  }, [loadRagChats, status])
 
   useEffect(() => {
     if (
@@ -574,6 +884,71 @@ export function DocumentRag() {
 
     if (documents.length > MAX_SELECTED_DOCUMENTS) {
       notifications.info(`Selected the first ${MAX_SELECTED_DOCUMENTS} shown files.`)
+    }
+  }
+
+  function handleNewChat() {
+    setCurrentChatId('')
+    setChatMessages([])
+    setSearchResponse(null)
+    setResultMode(null)
+    setQuery('')
+  }
+
+  async function handleOpenChat(chatSessionId) {
+    if (!chatSessionId || isOpeningChat) return
+
+    setIsOpeningChat(true)
+    setError(null)
+
+    try {
+      const chatDetail = await getRagChat(organizationId, chatSessionId)
+      const selectedIds = chatDetail.chat?.selectedDocumentIds ?? []
+
+      setCurrentChatId(chatDetail.chat?.id ?? chatSessionId)
+      setChatMessages(chatDetail.messages ?? [])
+      setSelectedDocumentIds(selectedIds)
+      setScope(selectedIds.length > 0 ? 'selected' : 'all')
+      setSearchResponse(null)
+      setResultMode(null)
+      setQuery('')
+    } catch (requestError) {
+      setError(requestError)
+      notifications.error(
+        getDocumentAiErrorMessage(
+          requestError,
+          'We could not open that chat. Refresh the page and try again.',
+        ),
+      )
+    } finally {
+      setIsOpeningChat(false)
+    }
+  }
+
+  async function handleDeleteChat(chatSessionId) {
+    if (!chatSessionId) return
+
+    const confirmed = window.confirm('Delete this chat from your history?')
+    if (!confirmed) return
+
+    try {
+      await deleteRagChat(organizationId, chatSessionId)
+      setChatSessions((current) =>
+        current.filter((chat) => chat.id !== chatSessionId),
+      )
+
+      if (currentChatId === chatSessionId) {
+        handleNewChat()
+      }
+
+      notifications.success('Chat deleted.')
+    } catch (requestError) {
+      notifications.error(
+        getDocumentAiErrorMessage(
+          requestError,
+          'We could not delete that chat. Please try again.',
+        ),
+      )
     }
   }
 
@@ -636,6 +1011,7 @@ export function DocumentRag() {
 
     try {
       const payload = buildRagPayload({
+        chatSessionId: mode === 'ask' ? currentChatId : '',
         query: query.trim(),
         scope,
         selectedDocumentIds,
@@ -645,7 +1021,15 @@ export function DocumentRag() {
           ? await askRagDocuments(organizationId, payload)
           : await searchRagDocuments(organizationId, payload)
 
-      setSearchResponse(response)
+      if (mode === 'ask' && response.chatMessages?.length) {
+        setCurrentChatId(response.chatSession?.id ?? currentChatId)
+        setChatMessages((current) => [...current, ...response.chatMessages])
+        setSearchResponse(null)
+        setQuery('')
+        void loadRagChats()
+      } else {
+        setSearchResponse(response)
+      }
     } catch (requestError) {
       setError(requestError)
       notifications.error(
@@ -661,15 +1045,13 @@ export function DocumentRag() {
     }
   }
 
-  async function handleReindex() {
+  async function prepareFilesForAi(targetIds, successMessage) {
     if (isReindexing) {
       notifications.info('File preparation is already running. Watch the file status for progress.')
       return
     }
 
-    const targetIds = scope === 'selected' ? selectedDocumentIds : []
-
-    if (scope === 'selected' && targetIds.length === 0) {
+    if (Array.isArray(targetIds) && targetIds.length === 0) {
       notifications.error('Select at least one file before preparing it for AI.')
       return
     }
@@ -679,7 +1061,7 @@ export function DocumentRag() {
 
     try {
       const statuses = await reindexRagDocuments(organizationId, {
-        documentIds: targetIds.length ? targetIds : undefined,
+        documentIds: targetIds?.length ? targetIds : undefined,
       })
 
       setDocumentStatuses((currentStatuses) =>
@@ -690,9 +1072,10 @@ export function DocumentRag() {
       ).length
 
       notifications.success(
-        workingCount > 0
+        successMessage ??
+          (workingCount > 0
           ? `Preparing ${workingCount} file(s). Status will update automatically.`
-          : 'Selected file(s) are already ready.',
+          : 'Selected file(s) are already ready.'),
       )
     } catch (requestError) {
       setError(requestError)
@@ -705,6 +1088,12 @@ export function DocumentRag() {
     } finally {
       setIsReindexing(false)
     }
+  }
+
+  async function handleReindex() {
+    const targetIds = scope === 'selected' ? selectedDocumentIds : undefined
+
+    await prepareFilesForAi(targetIds)
   }
 
   if (status === 'loading' || status === 'idle') {
@@ -776,6 +1165,76 @@ export function DocumentRag() {
         </Alert>
       )}
 
+      <section className={`rag-workspace ${!canAskDocuments ? 'rag-workspace--single' : ''}`}>
+        {canAskDocuments && (
+        <aside className="card rag-chat-panel">
+          <div className="section-heading">
+            <div>
+              <span className="card__label">History</span>
+              <h2>Chats</h2>
+            </div>
+            <button
+              className="icon-button"
+              onClick={handleNewChat}
+              title="Start a new chat"
+              type="button"
+            >
+              <RagIcon name="plus" size={16} />
+            </button>
+          </div>
+
+          {isChatsLoading ? (
+            <Loader label="Loading chats..." />
+          ) : chatSessions.length ? (
+            <div className="rag-chat-list">
+              {chatSessions.map((chat) => {
+                const isActive = chat.id === currentChatId
+                const lastMessage = chat.lastMessage?.content || 'No messages yet'
+
+                return (
+                  <article
+                    className={`rag-chat-item ${isActive ? 'rag-chat-item--active' : ''}`}
+                    key={chat.id}
+                  >
+                    <button
+                      className="rag-chat-item__button"
+                      disabled={isOpeningChat}
+                      onClick={() => void handleOpenChat(chat.id)}
+                      type="button"
+                    >
+                      <span aria-hidden="true" className="rag-chat-item__icon">
+                        <RagIcon name="history" size={15} />
+                      </span>
+                      <span className="rag-chat-item__content">
+                        <strong title={chat.title}>{chat.title}</strong>
+                        <small title={lastMessage}>{lastMessage}</small>
+                        <em>{formatDate(chat.updatedAt)}</em>
+                      </span>
+                    </button>
+                    <button
+                      className="rag-chat-item__delete"
+                      onClick={() => void handleDeleteChat(chat.id)}
+                      title="Delete chat"
+                      type="button"
+                    >
+                      <RagIcon name="trash" size={14} />
+                    </button>
+                  </article>
+                )
+              })}
+            </div>
+          ) : (
+            <section className="empty-state empty-state--compact rag-chat-empty">
+              <div>
+                <h2>No chats yet</h2>
+                <p>Ask a question to save your first document chat.</p>
+              </div>
+            </section>
+          )}
+        </aside>
+        )}
+
+        <div className="rag-main-panel">
       <section className="card rag-query-card">
         <div className="rag-query-card__intro">
           <span aria-hidden="true" className="file-icon file-icon--large">
@@ -899,6 +1358,18 @@ export function DocumentRag() {
                       <span className="rag-document-option__main">
                         <strong>{document.name}</strong>
                         <small>
+                          {[
+                            document.originalFilename,
+                            formatBytes(document.sizeBytes),
+                            getActorLabel(document.createdBy),
+                            indexStatus?.updatedAt
+                              ? `ready ${formatDate(indexStatus.updatedAt)}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </small>
+                        <small className="rag-hidden-meta" aria-hidden="true">
                           {document.originalFilename} · {formatBytes(document.sizeBytes)} ·{' '}
                           {getActorLabel(document.createdBy)}
                           {indexStatus?.updatedAt
@@ -976,6 +1447,52 @@ export function DocumentRag() {
         </div>
       </section>
 
+          {chatMessages.length > 0 && (
+            <section className="card rag-conversation-card">
+              <div className="section-heading">
+                <div>
+                  <span className="card__label">Conversation</span>
+                  <h2>{currentChat?.title || 'Current chat'}</h2>
+                </div>
+                <span className="status-badge">
+                  {chatMessages.length} message
+                  {chatMessages.length === 1 ? '' : 's'}
+                </span>
+              </div>
+
+              <div className="rag-message-list rag-message-list--latest">
+                {focusedChat.latestMessages.map((message) => (
+                  <ChatMessage
+                    key={message.id}
+                    message={message}
+                    organizationId={organizationId}
+                  />
+                ))}
+              </div>
+
+              {focusedChat.previousMessages.length > 0 && (
+                <details className="rag-previous-messages">
+                  <summary>
+                    Previous messages
+                    <span>
+                      {focusedChat.previousMessages.length} message
+                      {focusedChat.previousMessages.length === 1 ? '' : 's'}
+                    </span>
+                  </summary>
+                  <div className="rag-message-list rag-message-list--previous">
+                    {focusedChat.previousMessages.map((message) => (
+                      <ChatMessage
+                        key={message.id}
+                        message={message}
+                        organizationId={organizationId}
+                      />
+                    ))}
+                  </div>
+                </details>
+              )}
+            </section>
+          )}
+
       {searchResponse && (
         <section className="rag-results">
           {'answer' in searchResponse && (
@@ -989,25 +1506,35 @@ export function DocumentRag() {
                 </div>
               </div>
               <AnswerMarkdown text={searchResponse.answer} />
-              {sourceDocuments.length > 0 && (
+              <CitationToggle
+                organizationId={organizationId}
+                sources={sourceDocuments}
+              />
+              {false && sourceDocuments.length > 0 && (
                 <div className="rag-source-list">
-                  {sourceDocuments.map((source) => (
-                    <a
-                      className="rag-source-pill"
-                      href={getOrganizationDocumentContentUrl(
-                        organizationId,
-                        source.document_id,
-                      )}
-                      key={source.document_id}
-                      rel="noreferrer"
-                      title={source.document_name || source.original_filename}
-                      target="_blank"
-                    >
-                      {source.document_name ||
-                        source.original_filename ||
-                        'Document'}
-                    </a>
-                  ))}
+                  {sourceDocuments.map((source, index) => {
+                    const sourceDocumentId = getSourceDocumentId(source)
+                    const label = [
+                      getSourceDocumentName(source),
+                      getSourceLocationLabel(source),
+                    ].join(' — ')
+
+                    return (
+                      <a
+                        className="rag-source-pill"
+                        href={getOrganizationDocumentContentUrl(
+                          organizationId,
+                          sourceDocumentId,
+                        )}
+                        key={`${sourceDocumentId}-${getSourceLocationLabel(source)}-${index}`}
+                        rel="noreferrer"
+                        title={label}
+                        target="_blank"
+                      >
+                        {label}
+                      </a>
+                    )
+                  })}
                 </div>
               )}
             </article>
@@ -1016,9 +1543,9 @@ export function DocumentRag() {
           <section className="card">
             <div className="section-heading">
               <div>
-                <span className="card__label">Files used</span>
+                <span className="card__label">Sources used</span>
                 <h2>
-                  {sourceDocuments.length} file
+                  {sourceDocuments.length} source
                   {sourceDocuments.length === 1 ? '' : 's'}
                 </h2>
               </div>
@@ -1032,7 +1559,7 @@ export function DocumentRag() {
                 {sourceDocuments.map(
                   (result) => (
                     <SourceDocumentCard
-                      key={result.document_id}
+                      key={`${getSourceDocumentId(result)}-${getSourceLocationLabel(result)}`}
                       organizationId={organizationId}
                       result={result}
                     />
@@ -1053,6 +1580,8 @@ export function DocumentRag() {
           </section>
         </section>
       )}
+        </div>
+      </section>
     </main>
   )
 }

@@ -91,7 +91,7 @@ export async function searchRagDocuments(organizationId, payload) {
 }
 
 export async function askRagDocuments(organizationId, payload) {
-  const response = await apiRequest(organizationDocumentPath(organizationId, '/rag/ask'), {
+  const response = await csrfRequest(organizationDocumentPath(organizationId, '/rag/ask'), {
     body: payload,
     cache: 'no-store',
     method: 'POST',
@@ -99,6 +99,37 @@ export async function askRagDocuments(organizationId, payload) {
   })
 
   return getResponseData(response)
+}
+
+export async function listRagChats(organizationId) {
+  const response = await apiRequest(organizationDocumentPath(organizationId, '/rag/chats'), {
+    cache: 'no-store',
+    requiresAuth: true,
+  })
+
+  return getResponseData(response).chats ?? []
+}
+
+export async function getRagChat(organizationId, chatSessionId) {
+  const response = await apiRequest(
+    organizationDocumentPath(organizationId, `/rag/chats/${encode(chatSessionId)}`),
+    {
+      cache: 'no-store',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response)
+}
+
+export async function deleteRagChat(organizationId, chatSessionId) {
+  await csrfRequest(
+    organizationDocumentPath(organizationId, `/rag/chats/${encode(chatSessionId)}`),
+    {
+      method: 'DELETE',
+      requiresAuth: true,
+    },
+  )
 }
 
 export async function getRagDocumentStatuses(organizationId) {
