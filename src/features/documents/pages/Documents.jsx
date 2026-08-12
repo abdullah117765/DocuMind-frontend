@@ -17,6 +17,7 @@ import {
   getDocumentVersions,
   getOrganizationDocumentContentUrl,
   getOrganizationDocumentDownloadUrl,
+  getPlatformDocumentPreview,
   getPlatformDocumentContentUrl,
   getStagedFileContentUrl,
   getUploadJobEventsUrl,
@@ -364,7 +365,45 @@ function isPdfMime(mimeType = '') {
   return mimeType === 'application/pdf'
 }
 
-function renderPreviewBody(preview, contentUrl, mimeType) {
+function isBinaryInlinePreview(preview, mimeType = '') {
+  const previewMimeType = preview?.mimeType || mimeType
+
+  return (
+    preview?.kind === 'binary' &&
+    preview.previewAvailable &&
+    (isImageMime(previewMimeType) || isPdfMime(previewMimeType))
+  )
+}
+
+function getFriendlyDocumentType(document = {}) {
+  const extension = String(document.extension ?? '').toLowerCase()
+  const labels = {
+    csv: 'Spreadsheet',
+    doc: 'Word document',
+    docx: 'Word document',
+    html: 'Web document',
+    jpeg: 'Image',
+    jpg: 'Image',
+    json: 'JSON file',
+    pdf: 'PDF document',
+    png: 'Image',
+    ppt: 'PowerPoint',
+    pptx: 'PowerPoint',
+    txt: 'Text file',
+    xlsx: 'Spreadsheet',
+    xml: 'XML file',
+    zip: 'Archive',
+  }
+
+  return labels[extension] ?? 'File'
+}
+
+function renderPreviewBody(
+  preview,
+  contentUrl,
+  mimeType,
+  { binaryError = '', isBinaryLoading = false } = {},
+) {
   if (!preview) {
     return (
       <section className="empty-state empty-state--compact">
@@ -377,6 +416,22 @@ function renderPreviewBody(preview, contentUrl, mimeType) {
   }
 
   if (preview.kind === 'binary' && preview.previewAvailable) {
+    if (binaryError) {
+      return <Alert tone="warning">{binaryError}</Alert>
+    }
+
+    if (isBinaryLoading) {
+      return <Loader label="Opening preview..." />
+    }
+
+    if (!contentUrl) {
+      return (
+        <Alert tone="warning">
+          We could not open the preview. Download the file to view it.
+        </Alert>
+      )
+    }
+
     if (isImageMime(preview.mimeType || mimeType)) {
       return (
         <img
@@ -453,7 +508,61 @@ function renderPreviewBody(preview, contentUrl, mimeType) {
 }
 
 function DocumentPreviewModal({ item, onClose }) {
+  const [binaryError, setBinaryError] = useState('')
+  const [binaryObjectUrl, setBinaryObjectUrl] = useState('')
+
+  useEffect(() => {
+    let active = true
+    let createdObjectUrl = ''
+
+    setBinaryError('')
+    setBinaryObjectUrl('')
+
+    if (!item?.contentUrl || !isBinaryInlinePreview(item.preview, item.mimeType)) {
+      return undefined
+    }
+
+    const controller = new AbortController()
+
+    fetch(item.contentUrl, {
+      cache: 'no-store',
+      credentials: 'include',
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('Preview request failed')
+        }
+
+        return response.blob()
+      })
+      .then((blob) => {
+        if (!active) return
+
+        createdObjectUrl = URL.createObjectURL(blob)
+        setBinaryObjectUrl(createdObjectUrl)
+      })
+      .catch((error) => {
+        if (!active || error?.name === 'AbortError') return
+
+        setBinaryError(
+          'We could not open the preview. Download the file to view it.',
+        )
+      })
+
+    return () => {
+      active = false
+      controller.abort()
+
+      if (createdObjectUrl) {
+        URL.revokeObjectURL(createdObjectUrl)
+      }
+    }
+  }, [item?.contentUrl, item?.id, item?.mimeType, item?.preview])
+
   if (!item) return null
+
+  const shouldLoadBinaryPreview = isBinaryInlinePreview(item.preview, item.mimeType)
 
   return (
     <Modal isOpen={Boolean(item)} onClose={onClose} title={getPreviewTitle(item)}>
@@ -474,7 +583,16 @@ function DocumentPreviewModal({ item, onClose }) {
             </a>
           )}
         </div>
-        {renderPreviewBody(item.preview, item.contentUrl, item.mimeType)}
+        {renderPreviewBody(
+          item.preview,
+          shouldLoadBinaryPreview ? binaryObjectUrl : item.contentUrl,
+          item.mimeType,
+          {
+            binaryError,
+            isBinaryLoading:
+              shouldLoadBinaryPreview && !binaryObjectUrl && !binaryError,
+          },
+        )}
       </div>
     </Modal>
   )
@@ -1250,9 +1368,9 @@ export function Documents({ scope = 'organization' }) {
 
   async function openDocumentPreview(document) {
     try {
-      const preview = !isPlatform
-        ? await getDocumentPreview(organizationId, document.id)
-        : document.latestVersion?.preview ?? null
+      const preview = isPlatform
+        ? await getPlatformDocumentPreview(document.id)
+        : await getDocumentPreview(organizationId, document.id)
 
       setPreviewTarget({
         ...document,
@@ -1757,7 +1875,9 @@ export function Documents({ scope = 'organization' }) {
                   role="cell"
                 >
                   <strong>{(document.extension ?? 'file').toUpperCase()}</strong>
-                  <small title={document.mimeType}>{document.mimeType}</small>
+                  <small title={document.mimeType}>
+                    {getFriendlyDocumentType(document)}
+                  </small>
                 </span>
                 <span
                   className="document-cell document-cell--size"

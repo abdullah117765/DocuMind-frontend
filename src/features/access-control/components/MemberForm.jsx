@@ -25,6 +25,10 @@ function validatePersonName(value) {
   return ''
 }
 
+function canAssignRole(role) {
+  return role?.canAssign !== false
+}
+
 export function MemberForm({
   isSaving,
   member,
@@ -42,12 +46,14 @@ export function MemberForm({
     member?.roles?.[0]?.id ? [member.roles[0].id] : [],
   )
   const selectedRoleId = roleIds[0] ?? ''
-  const maxReached = Boolean(selectedRoleId)
-  const hasAssignableRoles = roles.length > 0
+  const visibleRoles = roles.filter(canAssignRole)
+  const selectedAssignable = visibleRoles.some((role) => role.id === selectedRoleId)
+  const maxReached = Boolean(selectedRoleId && selectedAssignable)
+  const hasAssignableRoles = visibleRoles.length > 0
 
-  function selectRole(roleId) {
+  function selectRole(role) {
     setRoleError('')
-    setRoleIds([roleId])
+    setRoleIds([role.id])
   }
 
   function handleSubmit(event) {
@@ -69,7 +75,7 @@ export function MemberForm({
       return
     }
 
-    if (roleIds.length !== 1) {
+    if (roleIds.length !== 1 || !selectedAssignable) {
       setRoleError('Select exactly one organization role.')
       return
     }
@@ -140,8 +146,8 @@ export function MemberForm({
         </div>
         {roleError && <p className="field__error">{roleError}</p>}
         <div className="role-options__list">
-          {roles.length ? (
-            roles.map((role) => {
+          {visibleRoles.length ? (
+            visibleRoles.map((role) => {
               const isSelected = selectedRoleId === role.id
 
               return (
@@ -150,7 +156,7 @@ export function MemberForm({
                     checked={isSelected}
                     disabled={isSaving}
                     name="organization-role"
-                    onChange={() => selectRole(role.id)}
+                    onChange={() => selectRole(role)}
                     type="radio"
                   />
                   <span>

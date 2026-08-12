@@ -186,6 +186,10 @@ function formatProcessingTime(value) {
 }
 
 function cleanUiText(value = '') {
+  return String(value).replace(/\u00c2\u00b7/g, ' - ')
+}
+
+function cleanUiTextLegacy(value = '') {
   return String(value).replace(/\u00c2\u00b7/g, '·')
 }
 
@@ -272,27 +276,72 @@ function getSourceVersion(source) {
 }
 
 function getSourceScore(source) {
-  const score = Number(source?.score)
+  const rawScore = source?.score
+
+  if (rawScore === null || rawScore === undefined || rawScore === '') return null
+
+  const score = Number(rawScore)
 
   return Number.isFinite(score) ? score : null
 }
 
+function getSourceMetadata(source) {
+  return source?.metadata && typeof source.metadata === 'object'
+    ? source.metadata
+    : {}
+}
+
+function getSourceText(source) {
+  const metadata = getSourceMetadata(source)
+  const candidates = [
+    source?.text,
+    source?.excerpt,
+    source?.content,
+    metadata.text,
+    metadata.excerpt,
+    metadata.content,
+  ]
+
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.replace(/\s+/g, ' ').trim()
+    }
+  }
+
+  return ''
+}
+
+function getSourceSnippet(source, maxLength = 260) {
+  const text = getSourceText(source)
+
+  if (!text) return ''
+
+  return text.length > maxLength ? `${text.slice(0, maxLength).trim()}...` : text
+}
+
 function getSourceLocationLabel(source) {
+  const metadata = getSourceMetadata(source)
   const directLabel = source?.location_label || source?.locationLabel
 
   if (typeof directLabel === 'string' && directLabel.trim()) {
     return directLabel.trim()
   }
 
-  const pageNumber = source?.page_number ?? source?.pageNumber
+  const pageNumber =
+    source?.page_number ?? source?.pageNumber ?? metadata.page_number
   if (pageNumber) return `Page ${pageNumber}`
 
-  const slideNumber = source?.slide_number ?? source?.slideNumber
+  const slideNumber =
+    source?.slide_number ?? source?.slideNumber ?? metadata.slide_number
   if (slideNumber) return `Slide ${slideNumber}`
 
-  const sheetName = source?.sheet_name ?? source?.sheetName
-  const lineStart = source?.line_start ?? source?.lineStart
-  const lineEnd = source?.line_end ?? source?.lineEnd
+  const sectionTitle =
+    source?.section_title ?? source?.sectionTitle ?? metadata.section_title
+  if (sectionTitle) return sectionTitle
+
+  const sheetName = source?.sheet_name ?? source?.sheetName ?? metadata.sheet_name
+  const lineStart = source?.line_start ?? source?.lineStart ?? metadata.line_start
+  const lineEnd = source?.line_end ?? source?.lineEnd ?? metadata.line_end
 
   if (sheetName && lineStart && lineEnd) {
     return `${sheetName}, lines ${lineStart}-${lineEnd}`
@@ -304,16 +353,56 @@ function getSourceLocationLabel(source) {
       : `Lines ${lineStart}-${lineEnd}`
   }
 
-  const sectionTitle = source?.section_title ?? source?.sectionTitle
-  if (sectionTitle) return sectionTitle
+  return ''
+}
 
-  return 'Relevant section'
+function getSourceLocationType(source) {
+  const metadata = getSourceMetadata(source)
+  const type = source?.location_type || source?.locationType || metadata.location_type
+
+  if (typeof type === 'string' && type.trim()) {
+    return type.trim().toLowerCase()
+  }
+
+  const location = getSourceLocationLabel(source).toLowerCase()
+
+  if (location.startsWith('page ')) return 'page'
+  if (location.startsWith('paragraph ')) return 'paragraph'
+  if (location.startsWith('slide ')) return 'slide'
+  if (location.startsWith('table ')) return 'table'
+  if (location.startsWith('line')) return 'lines'
+  if (location.startsWith('sheet')) return 'sheet'
+
+  return ''
+}
+
+function getCitationWhereLabel(source) {
+  const locationLabel = getSourceLocationLabel(source)
+
+  if (locationLabel) return locationLabel
+
+  const chunkIndex = Number(source?.chunk_index ?? source?.chunkIndex)
+
+  if (Number.isSafeInteger(chunkIndex) && chunkIndex >= 0) {
+    return `Passage ${chunkIndex + 1}`
+  }
+
+  return 'Location not available'
+}
+
+function getCitationHelpText(source) {
+  if (getSourceLocationLabel(source)) return ''
+  if (getSourceSnippet(source)) {
+    return 'Exact page or paragraph is not available for this file.'
+  }
+
+  return 'Prepare this file again to add page or paragraph citations.'
 }
 
 function getSourceDisplayLabel(source) {
   return [
     getSourceDocumentName(source),
-    getSourceLocationLabel(source),
+    getCitationWhereLabel(source),
   ].join(' - ')
 }
 
@@ -395,30 +484,62 @@ function SourceDocumentCard({ organizationId, result }) {
 
 function SourcePill({ organizationId, source, index }) {
   const sourceDocumentId = getSourceDocumentId(source)
-  const label = getSourceDisplayLabel(source)
+  const documentName = getSourceDocumentName(source)
+  const whereLabel = getCitationWhereLabel(source)
+  const helpText = getCitationHelpText(source)
+  const sourceType = getSourceLocationType(source)
+  const score = getSourceScore(source)
+  const fileType = getSourceFileType(source)
+  const snippet = getSourceSnippet(source)
 
   if (!sourceDocumentId) {
     return (
-      <span
-        className="rag-source-pill"
-        key={`${source.id ?? label}-${index}`}
-        title={label}
-      >
-        {label}
+      <span className="rag-citation-card" key={`${source.id ?? documentName}-${index}`}>
+        <span className="rag-citation-card__icon">{index + 1}</span>
+        <span className="rag-citation-card__body">
+          <strong title={documentName}>{documentName}</strong>
+          <small>
+            Where: <b>{whereLabel}</b>
+          </small>
+          {snippet && (
+            <span className="rag-citation-card__excerpt" title={snippet}>
+              {snippet}
+            </span>
+          )}
+          {helpText && <em>{helpText}</em>}
+        </span>
       </span>
     )
   }
 
   return (
     <a
-      className="rag-source-pill"
+      className="rag-citation-card"
       href={getOrganizationDocumentContentUrl(organizationId, sourceDocumentId)}
       key={`${sourceDocumentId}-${getSourceLocationLabel(source)}-${index}`}
       rel="noreferrer"
-      title={label}
+      title={[getSourceDisplayLabel(source), snippet].filter(Boolean).join(' — ')}
       target="_blank"
     >
-      {label}
+      <span className="rag-citation-card__icon">{index + 1}</span>
+      <span className="rag-citation-card__body">
+        <strong title={documentName}>{documentName}</strong>
+        <small>
+          Where: <b>{whereLabel}</b>
+          {sourceType && <span> - {sourceType}</span>}
+        </small>
+        <small>
+          {fileType.toUpperCase()}
+          {score !== null && ` - ${getScoreLabel(score)}`}
+        </small>
+        {snippet && (
+          <span className="rag-citation-card__excerpt" title={snippet}>
+            {snippet}
+          </span>
+        )}
+        {helpText && <em>{helpText}</em>}
+      </span>
+      <RagIcon name="open" size={14} />
     </a>
   )
 }
@@ -599,6 +720,42 @@ function RagStatusIndicator({ statusView }) {
   )
 }
 
+function RagDocumentOption({
+  disabled,
+  document,
+  indexStatus,
+  onToggle,
+  selected,
+}) {
+  const ragStatus = indexStatus?.status ?? 'NOT_INDEXED'
+  const meta = [
+    document.originalFilename,
+    formatBytes(document.sizeBytes),
+    getActorLabel(document.createdBy),
+  ]
+    .filter(Boolean)
+    .join(' - ')
+
+  return (
+    <label className={`rag-document-option ${selected ? 'rag-document-option--selected' : ''}`}>
+      <input
+        checked={selected}
+        disabled={disabled}
+        onChange={onToggle}
+        type="checkbox"
+      />
+      <span className="file-icon" aria-hidden="true">
+        {document.extension?.slice(0, 3).toUpperCase() || 'DOC'}
+      </span>
+      <span className="rag-document-option__main">
+        <strong title={document.name}>{document.name}</strong>
+        <small title={meta}>{meta}</small>
+      </span>
+      <RagStatusIndicator statusView={indexStatus ?? { status: ragStatus }} />
+    </label>
+  )
+}
+
 function getFriendlyRagStatusMessage(status) {
   if (status === 'INDEXED') return 'Ready for questions.'
   if (status === 'INDEXING') return 'Preparing this file for questions.'
@@ -656,6 +813,7 @@ export function DocumentRag() {
   const [documents, setDocuments] = useState([])
   const [documentStatuses, setDocumentStatuses] = useState([])
   const [documentFilter, setDocumentFilter] = useState('')
+  const [documentStatusFilter, setDocumentStatusFilter] = useState('')
   const [documentPage, setDocumentPage] = useState(1)
   const [documentPageSize, setDocumentPageSize] = useState(
     DEFAULT_DOCUMENT_PAGE_SIZE,
@@ -743,6 +901,7 @@ export function DocumentRag() {
         listOrganizationDocuments(organizationId, {
           page: documentPage,
           pageSize: documentPageSize,
+          ragStatus: documentStatusFilter,
           search: documentFilter.trim(),
           view: 'active',
         }),
@@ -777,6 +936,7 @@ export function DocumentRag() {
     documentFilter,
     documentPage,
     documentPageSize,
+    documentStatusFilter,
     notifications,
     organizationId,
   ])
@@ -893,6 +1053,14 @@ export function DocumentRag() {
     setSearchResponse(null)
     setResultMode(null)
     setQuery('')
+  }
+
+  function handleScopeChange(nextScope) {
+    setScope(nextScope)
+
+    if (nextScope === 'all') {
+      setSelectedDocumentIds([])
+    }
   }
 
   async function handleOpenChat(chatSessionId) {
@@ -1136,11 +1304,9 @@ export function DocumentRag() {
     <main className="page page--wide page--rag">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Document intelligence</p>
           <h1>Ask documents</h1>
           <p>
-            Search or ask questions from files you can already access in{' '}
-            {organizationName}. Choose selected files for tighter, safer answers.
+            Ask questions from files you can access in {organizationName}.
           </p>
         </div>
         <RefreshIconButton
@@ -1235,7 +1401,186 @@ export function DocumentRag() {
         )}
 
         <div className="rag-main-panel">
-      <section className="card rag-query-card">
+          <section className="card rag-ask-card">
+            <label className="field rag-question-field" htmlFor="rag-question-clean">
+              <textarea
+                id="rag-question-clean"
+                maxLength={4000}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                    event.preventDefault()
+                    void runRagRequest('ask')
+                  }
+                }}
+                placeholder="Ask something about your documents..."
+                rows={4}
+                value={query}
+              />
+              <span className="field__hint rag-question-hint">
+                <span>Press Ctrl/⌘ Enter to ask</span>
+                <span>{query.trim().length}/4000</span>
+              </span>
+            </label>
+
+            <div className="rag-scope-block">
+              <span className="card__label">File scope</span>
+              <div className="rag-scope-toggle" role="group" aria-label="Files to search">
+                <button
+                  className={scope === 'selected' ? 'is-active' : ''}
+                  onClick={() => handleScopeChange('selected')}
+                  type="button"
+                >
+                  Selected files only
+                </button>
+                <button
+                  className={scope === 'all' ? 'is-active' : ''}
+                  onClick={() => handleScopeChange('all')}
+                  type="button"
+                >
+                  All readable files
+                </button>
+              </div>
+              {scope === 'selected' ? (
+                <p className="rag-selected-summary">
+                  {selectedCount} file{selectedCount === 1 ? '' : 's'} selected
+                  {selectedCount > 0 && (
+                    <button onClick={() => setSelectedDocumentIds([])} type="button">
+                      Clear
+                    </button>
+                  )}
+                </p>
+              ) : (
+                <p className="rag-selected-summary">
+                  AI will search every readable file in this organization.
+                </p>
+              )}
+            </div>
+
+            {isSelectionRequired && selectedCount === 0 && (
+              <p className="field__hint">Select one or more files before asking AI.</p>
+            )}
+
+            <div className="rag-ask-actions">
+              <Button
+                disabled={isSearching}
+                onClick={() => void runRagRequest('search')}
+                variant="secondary"
+              >
+                <RagIcon name="search" size={15} />
+                {isSearching && resultMode === 'search'
+                  ? 'Finding...'
+                  : 'Find matching files'}
+              </Button>
+              {canReindexDocuments && (
+                <Button
+                  disabled={isReindexing || isLoading}
+                  onClick={() => void handleReindex()}
+                  variant="secondary"
+                >
+                  <RagIcon name="refresh" size={15} />
+                  {isReindexing ? 'Preparing...' : 'Prepare files for AI'}
+                </Button>
+              )}
+              <Button
+                disabled={isSearching || !canAskDocuments}
+                onClick={() => void runRagRequest('ask')}
+              >
+                <RagIcon name="spark" size={15} />
+                {askAiProcessing ? 'Working...' : 'Ask AI'}
+              </Button>
+            </div>
+          </section>
+
+          {scope === 'selected' && (
+          <section className="card rag-files-card">
+            <div className="rag-files-header">
+              <div>
+                <strong>
+                  Files
+                  {selectedCount > 0 && <span>{selectedCount} selected</span>}
+                </strong>
+                {documentPagination && (
+                  <small>
+                    {documentPagination.total} file
+                    {documentPagination.total === 1 ? '' : 's'} · page{' '}
+                    {documentPagination.page} of {documentPagination.pageCount}
+                  </small>
+                )}
+              </div>
+              <div className="rag-files-filters">
+                <select
+                  aria-label="Filter by file status"
+                  onChange={(event) => {
+                    setDocumentStatusFilter(event.target.value)
+                    setDocumentPage(1)
+                  }}
+                  value={documentStatusFilter}
+                >
+                  <option value="">All statuses</option>
+                  <option value="ready">Ready</option>
+                  <option value="preparing">Preparing</option>
+                  <option value="needs_attention">Needs attention</option>
+                  <option value="no_readable_text">No readable text</option>
+                </select>
+                <input
+                  aria-label="Search files"
+                  onChange={(event) => {
+                    setDocumentFilter(event.target.value)
+                    setDocumentPage(1)
+                  }}
+                  placeholder="Search files..."
+                  type="search"
+                  value={documentFilter}
+                />
+              </div>
+            </div>
+
+            {isLoading ? (
+              <Loader label="Loading files..." />
+            ) : documents.length ? (
+              <div className="rag-document-list rag-document-list--clean">
+                {documents.map((document) => {
+                  const selected = selectedDocumentIds.includes(document.id)
+                  const indexStatus = statusByDocumentId.get(document.id)
+                  const disabled =
+                    !selected && selectedCount >= MAX_SELECTED_DOCUMENTS
+
+                  return (
+                    <RagDocumentOption
+                      disabled={disabled}
+                      document={document}
+                      indexStatus={indexStatus}
+                      key={document.id}
+                      onToggle={() => toggleDocument(document.id)}
+                      selected={selected}
+                    />
+                  )
+                })}
+              </div>
+            ) : (
+              <section className="empty-state empty-state--compact">
+                <div>
+                  <h2>No readable files found</h2>
+                  <p>Try a different filter or upload documents first.</p>
+                </div>
+              </section>
+            )}
+
+            <ListPagination
+              label="Ask Documents file pagination"
+              onPageChange={setDocumentPage}
+              onPageSizeChange={(nextPageSize) => {
+                setDocumentPageSize(nextPageSize)
+                setDocumentPage(1)
+              }}
+              pageSize={documentPageSize}
+              pagination={documentPagination}
+            />
+          </section>
+          )}
+
+      <section className="card rag-query-card rag-legacy-query-card">
         <div className="rag-query-card__intro">
           <span aria-hidden="true" className="file-icon file-icon--large">
             <RagIcon name="spark" size={22} />
@@ -1267,7 +1612,7 @@ export function DocumentRag() {
           <label className="field">
             <span className="field__label">Files to search</span>
             <select
-              onChange={(event) => setScope(event.target.value)}
+              onChange={(event) => handleScopeChange(event.target.value)}
               value={scope}
             >
               <option value="selected">Selected files only</option>

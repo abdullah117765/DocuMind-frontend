@@ -175,6 +175,18 @@ export async function getDocumentPreview(organizationId, documentId) {
   return getResponseData(response).preview
 }
 
+export async function getPlatformDocumentPreview(documentId) {
+  const response = await apiRequest(
+    platformDocumentPath(`/${encode(documentId)}/preview`),
+    {
+      cache: 'no-store',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).preview
+}
+
 export async function getDocumentVersions(organizationId, documentId) {
   const response = await apiRequest(
     organizationDocumentPath(organizationId, `/${encode(documentId)}/versions`),
