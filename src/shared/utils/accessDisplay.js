@@ -9,16 +9,12 @@ export function getDisplayName(user = {}) {
 }
 
 export function getInitialsFromUser(user = {}) {
-  const parts = getDisplayName(user)
-    .split(/[\s._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
+  const normalizedName = getDisplayName(user).replace(/\s+/g, '').trim()
 
-  return (
-    parts
-      .map((part) => part[0]?.toUpperCase())
-      .join('') || 'U'
-  )
+  if (!normalizedName) return 'U'
+  if (normalizedName.length === 1) return normalizedName[0].toUpperCase()
+
+  return `${normalizedName[0]}${normalizedName[normalizedName.length - 1]}`.toUpperCase()
 }
 
 export function getPrimaryRoleName(roles = []) {

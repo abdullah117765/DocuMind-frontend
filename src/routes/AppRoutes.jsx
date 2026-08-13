@@ -13,6 +13,7 @@ import { useAuth } from '../features/auth/hooks/useAuth.js'
 import { Dashboard } from '../features/dashboard/pages/Dashboard.jsx'
 import { DocumentRag } from '../features/documents/pages/DocumentRag.jsx'
 import { Documents } from '../features/documents/pages/Documents.jsx'
+import { KnowledgeBases } from '../features/knowledge-bases/pages/KnowledgeBases.jsx'
 import { AuditLogs } from '../features/users/pages/AuditLogs.jsx'
 import { Loader } from '../shared/components/Loader/Loader.jsx'
 import { AuthenticatedLayout } from './AuthenticatedLayout.jsx'
@@ -75,6 +76,7 @@ export function AppRoutes() {
     '/audit-logs': <AuditLogs />,
     '/dashboard': <Dashboard />,
     '/documents': <Documents />,
+    '/knowledge-bases': <KnowledgeBases />,
     '/documents/search': <DocumentRag />,
     '/account/profile': <Profile />,
     '/account/sessions': <DeviceSessions />,
