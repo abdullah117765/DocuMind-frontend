@@ -18,6 +18,10 @@ import {
   reindexRagDocuments,
   searchRagDocuments,
 } from '../services/documentsApi.js'
+import {
+  listKnowledgeBaseCollections,
+  listKnowledgeBases,
+} from '../../knowledge-bases/services/knowledgeBasesApi.js'
 
 const MAX_SELECTED_DOCUMENTS = 50
 const DEFAULT_DOCUMENT_PAGE_SIZE = 10
@@ -757,10 +761,22 @@ function getFocusedChatMessages(messages = []) {
   }
 }
 
-function buildRagPayload({ query, scope, selectedDocumentIds, chatSessionId }) {
+function buildRagPayload({
+  query,
+  scope,
+  selectedDocumentIds,
+  selectedKnowledgeBaseIds,
+  selectedCollectionIds,
+  chatSessionId,
+}) {
   return {
     chatSessionId: chatSessionId || undefined,
     documentIds: scope === 'selected' ? selectedDocumentIds : undefined,
+    knowledgeBaseIds:
+      scope === 'knowledge_base' || scope === 'collection'
+        ? selectedKnowledgeBaseIds
+        : undefined,
+    collectionIds: scope === 'collection' ? selectedCollectionIds : undefined,
     query,
     scope,
   }
@@ -912,6 +928,10 @@ export function DocumentRag() {
   const [query, setQuery] = useState('')
   const [resultMode, setResultMode] = useState(null)
   const [scope, setScope] = useState('selected')
+  const [knowledgeBases, setKnowledgeBases] = useState([])
+  const [knowledgeBaseCollections, setKnowledgeBaseCollections] = useState([])
+  const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState([])
+  const [selectedCollectionIds, setSelectedCollectionIds] = useState([])
   const [searchResponse, setSearchResponse] = useState(null)
   const [selectedDocumentIds, setSelectedDocumentIds] = useState([])
   const [chatSessions, setChatSessions] = useState([])
@@ -983,7 +1003,7 @@ export function DocumentRag() {
     setError(null)
 
     try {
-      const [documentList, statuses] = await Promise.all([
+      const [documentList, statuses, knowledgeBaseList] = await Promise.all([
         listOrganizationDocuments(organizationId, {
           page: documentPage,
           pageSize: documentPageSize,
@@ -992,6 +1012,7 @@ export function DocumentRag() {
           view: 'active',
         }),
         getRagDocumentStatuses(organizationId),
+        listKnowledgeBases(organizationId, { page: 1, pageSize: 100 }),
       ])
 
       if (
@@ -1006,6 +1027,7 @@ export function DocumentRag() {
       setDocuments(documentList.documents ?? [])
       setDocumentPagination(documentList.pagination ?? null)
       setDocumentStatuses(statuses ?? [])
+      setKnowledgeBases(knowledgeBaseList.knowledgeBases ?? [])
     } catch (requestError) {
       setError(requestError)
       notifications.error(
@@ -1075,7 +1097,44 @@ export function DocumentRag() {
     setChatMessages([])
     setSearchResponse(null)
     setQuery('')
+    setSelectedKnowledgeBaseIds([])
+    setSelectedCollectionIds([])
   }, [organizationId])
+
+  useEffect(() => {
+    let active = true
+
+    if (!organizationId || selectedKnowledgeBaseIds.length === 0) {
+      setKnowledgeBaseCollections([])
+      setSelectedCollectionIds([])
+      return undefined
+    }
+
+    Promise.all(
+      selectedKnowledgeBaseIds.map((knowledgeBaseId) =>
+        listKnowledgeBaseCollections(organizationId, knowledgeBaseId),
+      ),
+    )
+      .then((collectionGroups) => {
+        if (!active) return
+        const nextCollections = collectionGroups.flat()
+        setKnowledgeBaseCollections(nextCollections)
+        setSelectedCollectionIds((current) =>
+          current.filter((collectionId) =>
+            nextCollections.some((collection) => collection.id === collectionId),
+          ),
+        )
+      })
+      .catch(() => {
+        if (!active) return
+        setKnowledgeBaseCollections([])
+        setSelectedCollectionIds([])
+      })
+
+    return () => {
+      active = false
+    }
+  }, [organizationId, selectedKnowledgeBaseIds])
 
   useEffect(() => {
     if (status === 'ready') {
@@ -1133,6 +1192,25 @@ export function DocumentRag() {
     }
   }
 
+  function toggleKnowledgeBase(knowledgeBaseId) {
+    setSelectedKnowledgeBaseIds((current) => {
+      const next = current.includes(knowledgeBaseId)
+        ? current.filter((selectedId) => selectedId !== knowledgeBaseId)
+        : [...current, knowledgeBaseId]
+
+      setSelectedCollectionIds([])
+      return next
+    })
+  }
+
+  function toggleCollection(collectionId) {
+    setSelectedCollectionIds((current) =>
+      current.includes(collectionId)
+        ? current.filter((selectedId) => selectedId !== collectionId)
+        : [...current, collectionId],
+    )
+  }
+
   function handleNewChat() {
     setCurrentChatId('')
     setChatMessages([])
@@ -1145,6 +1223,20 @@ export function DocumentRag() {
     setScope(nextScope)
 
     if (nextScope === 'all') {
+      setSelectedDocumentIds([])
+    }
+
+    if (nextScope === 'selected') {
+      setSelectedKnowledgeBaseIds([])
+      setSelectedCollectionIds([])
+    }
+
+    if (nextScope === 'knowledge_base') {
+      setSelectedDocumentIds([])
+      setSelectedCollectionIds([])
+    }
+
+    if (nextScope === 'collection') {
       setSelectedDocumentIds([])
     }
   }
@@ -1221,6 +1313,23 @@ export function DocumentRag() {
       return false
     }
 
+    if (scope === 'knowledge_base' && selectedKnowledgeBaseIds.length === 0) {
+      notifications.info('Select at least one Knowledge Base before asking AI.')
+      return false
+    }
+
+    if (scope === 'collection') {
+      if (selectedKnowledgeBaseIds.length === 0) {
+        notifications.info('Select a Knowledge Base before choosing Collections.')
+        return false
+      }
+
+      if (selectedCollectionIds.length === 0) {
+        notifications.info('Select at least one Collection before asking AI.')
+        return false
+      }
+    }
+
     if (hasSelectedTooMany) {
       notifications.info(`You can select up to ${MAX_SELECTED_DOCUMENTS} files.`)
       return false
@@ -1269,6 +1378,8 @@ export function DocumentRag() {
         query: query.trim(),
         scope,
         selectedDocumentIds,
+        selectedKnowledgeBaseIds,
+        selectedCollectionIds,
       })
       const response =
         mode === 'ask'
@@ -1510,14 +1621,28 @@ export function DocumentRag() {
             </label>
 
             <div className="rag-scope-block">
-              <span className="card__label">File scope</span>
-              <div className="rag-scope-toggle" role="group" aria-label="Files to search">
+              <span className="card__label">Knowledge scope</span>
+              <div className="rag-scope-toggle" role="group" aria-label="Choose answer scope">
+                <button
+                  className={scope === 'knowledge_base' ? 'is-active' : ''}
+                  onClick={() => handleScopeChange('knowledge_base')}
+                  type="button"
+                >
+                  Knowledge Bases
+                </button>
+                <button
+                  className={scope === 'collection' ? 'is-active' : ''}
+                  onClick={() => handleScopeChange('collection')}
+                  type="button"
+                >
+                  Collections
+                </button>
                 <button
                   className={scope === 'selected' ? 'is-active' : ''}
                   onClick={() => handleScopeChange('selected')}
                   type="button"
                 >
-                  Selected files only
+                  Documents
                 </button>
                 <button
                   className={scope === 'all' ? 'is-active' : ''}
@@ -1536,10 +1661,79 @@ export function DocumentRag() {
                     </button>
                   )}
                 </p>
-              ) : (
+              ) : scope === 'all' ? (
                 <p className="rag-selected-summary">
                   AI will search every readable file in this organization.
                 </p>
+              ) : (
+                <p className="rag-selected-summary">
+                  AI will search the selected Knowledge Base scope.
+                </p>
+              )}
+              {(scope === 'knowledge_base' || scope === 'collection') && (
+                <div className="rag-scope-picker">
+                  <span className="field__label">Knowledge Bases</span>
+                  {knowledgeBases.length === 0 ? (
+                    <p className="field__hint">
+                      No Knowledge Bases are available yet.
+                    </p>
+                  ) : (
+                    <div className="rag-scope-options">
+                      {knowledgeBases.map((knowledgeBase) => (
+                        <label key={knowledgeBase.id} className="rag-scope-option">
+                          <input
+                            checked={selectedKnowledgeBaseIds.includes(
+                              knowledgeBase.id,
+                            )}
+                            onChange={() => toggleKnowledgeBase(knowledgeBase.id)}
+                            type="checkbox"
+                          />
+                          <span>
+                            <strong>{knowledgeBase.name}</strong>
+                            <small>
+                              {knowledgeBase.counts?.documents ?? 0} document
+                              {(knowledgeBase.counts?.documents ?? 0) === 1
+                                ? ''
+                                : 's'}
+                            </small>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {scope === 'collection' && selectedKnowledgeBaseIds.length > 0 && (
+                <div className="rag-scope-picker">
+                  <span className="field__label">Collections</span>
+                  {knowledgeBaseCollections.length === 0 ? (
+                    <p className="field__hint">
+                      No Collections are available for the selected Knowledge Base.
+                    </p>
+                  ) : (
+                    <div className="rag-scope-options">
+                      {knowledgeBaseCollections.map((collection) => {
+                        const knowledgeBase = knowledgeBases.find(
+                          (kb) => kb.id === collection.knowledgeBaseId,
+                        )
+
+                        return (
+                          <label key={collection.id} className="rag-scope-option">
+                            <input
+                              checked={selectedCollectionIds.includes(collection.id)}
+                              onChange={() => toggleCollection(collection.id)}
+                              type="checkbox"
+                            />
+                            <span>
+                              <strong>{collection.name}</strong>
+                              <small>{knowledgeBase?.name ?? 'Knowledge Base'}</small>
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
@@ -1666,6 +1860,7 @@ export function DocumentRag() {
           </section>
           )}
 
+      {false && (
       <section className="card rag-query-card rag-legacy-query-card">
         <div className="rag-query-card__intro">
           <span aria-hidden="true" className="file-icon file-icon--large">
@@ -1877,6 +2072,7 @@ export function DocumentRag() {
           )}
         </div>
       </section>
+      )}
 
           {chatMessages.length > 0 && (
             <section className="card rag-conversation-card">
