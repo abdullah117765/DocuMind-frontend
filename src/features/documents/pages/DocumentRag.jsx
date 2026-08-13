@@ -291,6 +291,59 @@ function getSourceMetadata(source) {
     : {}
 }
 
+function toPositiveInteger(value) {
+  const number = Number(value)
+
+  return Number.isSafeInteger(number) && number > 0 ? number : null
+}
+
+function getSourceNumber(source) {
+  const metadata = getSourceMetadata(source)
+  const candidates = [
+    source?.__citationNumber,
+    source?.source_number,
+    source?.sourceNumber,
+    source?.citation_number,
+    source?.citationNumber,
+    metadata.source_number,
+    metadata.sourceNumber,
+    metadata.citation_number,
+    metadata.citationNumber,
+  ]
+
+  for (const value of candidates) {
+    const number = toPositiveInteger(value)
+
+    if (number !== null) return number
+  }
+
+  return null
+}
+
+function getCitationNumber(source, index) {
+  return getSourceNumber(source) ?? index + 1
+}
+
+function getReferencedSourceNumbers(text) {
+  if (typeof text !== 'string' || !text.trim()) return new Set()
+
+  const references = new Set()
+  const citationPattern = /\[([\d,\s]+)\]/g
+  let match = citationPattern.exec(text)
+
+  while (match) {
+    for (const part of match[1].split(',')) {
+      const number = toPositiveInteger(part.trim())
+
+      if (number !== null) references.add(number)
+    }
+
+    match = citationPattern.exec(text)
+  }
+
+  return references
+}
+
 function getSourceText(source) {
   const metadata = getSourceMetadata(source)
   const candidates = [
@@ -406,36 +459,68 @@ function getSourceDisplayLabel(source) {
   ].join(' - ')
 }
 
-function getSourceDocuments(response) {
-  const rawSources = [
-    ...(response?.sources ?? []),
-    ...(response?.search_results ?? []),
-    ...(response?.results ?? []),
-  ]
+function getSourceDocuments(response, answerText = '') {
+  const rawGroups = [
+    response?.sources,
+    response?.search_results,
+    response?.results,
+  ].filter((group) => Array.isArray(group) && group.length)
+  const referencedNumbers = getReferencedSourceNumbers(
+    answerText || response?.answer || response?.content || '',
+  )
   const byLocation = new Map()
 
-  for (const source of rawSources) {
-    const documentId = getSourceDocumentId(source)
-    if (!documentId) continue
+  for (const group of rawGroups) {
+    group.forEach((source, sourceIndex) => {
+      const documentId = getSourceDocumentId(source)
+      if (!documentId) return
 
-    const locationLabel = getSourceLocationLabel(source)
-    const locationKey = [
-      documentId,
-      locationLabel,
-      source.chunk_index ?? source.chunkIndex ?? '',
-    ].join(':')
-    const existing = byLocation.get(locationKey)
-    const nextScore = getSourceScore(source) ?? 0
-    const existingScore = getSourceScore(existing) ?? 0
+      const sourceNumber = getSourceNumber(source) ?? sourceIndex + 1
+      const enrichedSource = {
+        ...source,
+        __citationNumber: sourceNumber,
+      }
+      const locationLabel = getSourceLocationLabel(enrichedSource)
+      const locationKey = [
+        documentId,
+        sourceNumber,
+        locationLabel,
+        source.chunk_index ?? source.chunkIndex ?? '',
+      ].join(':')
+      const existing = byLocation.get(locationKey)
+      const nextScore = getSourceScore(enrichedSource) ?? 0
+      const existingScore = getSourceScore(existing) ?? 0
+      const nextHasLocation = Boolean(getSourceLocationLabel(enrichedSource))
+      const existingHasLocation = Boolean(getSourceLocationLabel(existing))
+      const nextHasText = Boolean(getSourceSnippet(enrichedSource))
+      const existingHasText = Boolean(getSourceSnippet(existing))
 
-    if (!existing || nextScore > existingScore) {
-      byLocation.set(locationKey, source)
+      if (
+        !existing ||
+        (nextHasLocation && !existingHasLocation) ||
+        (nextHasText && !existingHasText) ||
+        nextScore > existingScore
+      ) {
+        byLocation.set(locationKey, enrichedSource)
+      }
+    })
+  }
+
+  let sources = [...byLocation.values()].sort(
+    (left, right) => getCitationNumber(left, 0) - getCitationNumber(right, 0),
+  )
+
+  if (referencedNumbers.size) {
+    const referencedSources = sources.filter((source, index) =>
+      referencedNumbers.has(getCitationNumber(source, index)),
+    )
+
+    if (referencedSources.length) {
+      sources = referencedSources
     }
   }
 
-  return [...byLocation.values()]
-    .sort((left, right) => (getSourceScore(right) ?? 0) - (getSourceScore(left) ?? 0))
-    .slice(0, 10)
+  return sources.slice(0, 10)
 }
 
 function SourceDocumentCard({ organizationId, result }) {
@@ -491,11 +576,12 @@ function SourcePill({ organizationId, source, index }) {
   const score = getSourceScore(source)
   const fileType = getSourceFileType(source)
   const snippet = getSourceSnippet(source)
+  const citationNumber = getCitationNumber(source, index)
 
   if (!sourceDocumentId) {
     return (
       <span className="rag-citation-card" key={`${source.id ?? documentName}-${index}`}>
-        <span className="rag-citation-card__icon">{index + 1}</span>
+        <span className="rag-citation-card__icon">{citationNumber}</span>
         <span className="rag-citation-card__body">
           <strong title={documentName}>{documentName}</strong>
           <small>
@@ -521,7 +607,7 @@ function SourcePill({ organizationId, source, index }) {
       title={[getSourceDisplayLabel(source), snippet].filter(Boolean).join(' — ')}
       target="_blank"
     >
-      <span className="rag-citation-card__icon">{index + 1}</span>
+      <span className="rag-citation-card__icon">{citationNumber}</span>
       <span className="rag-citation-card__body">
         <strong title={documentName}>{documentName}</strong>
         <small>
@@ -578,7 +664,7 @@ function CitationToggle({ organizationId, sources }) {
 
 function ChatMessage({ message, organizationId }) {
   const isUser = message.role === 'USER'
-  const sources = getSourceDocuments({ sources: message.sources ?? [] })
+  const sources = getSourceDocuments({ sources: message.sources ?? [] }, message.content)
 
   return (
     <article
@@ -849,7 +935,7 @@ export function DocumentRag() {
   const isSelectionRequired = scope === 'selected'
   const hasSelectedTooMany = selectedCount > MAX_SELECTED_DOCUMENTS
   const sourceDocuments = useMemo(
-    () => getSourceDocuments(searchResponse),
+    () => getSourceDocuments(searchResponse, searchResponse?.answer),
     [searchResponse],
   )
   const selectedStatusViews = useMemo(
