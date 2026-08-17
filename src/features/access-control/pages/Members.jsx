@@ -59,6 +59,10 @@ function getStatusTone(status) {
   return 'danger'
 }
 
+function unwrapOrganization(record) {
+  return record?.organization ?? record
+}
+
 function AccessIcon({ name, size = 16 }) {
   const commonProps = {
     fill: 'none',
@@ -434,7 +438,7 @@ function PeopleAccessTable({
                   )}
                   <ActionIconButton
                     disabled={isSaving || isSelf}
-                    icon={row.raw.isActive ? 'pause' : 'play'}
+                    icon={row.raw.isActive ? 'ban' : 'check'}
                     label={row.raw.isActive ? 'Deactivate account' : 'Reactivate account'}
                     onClick={() => onPlatformToggle(row.raw)}
                     tone={row.raw.isActive ? 'danger' : 'success'}
@@ -994,7 +998,7 @@ function OrganizationPeopleAccess() {
             member={editingMember}
             onCancel={() => setEditingMember(null)}
             onSubmit={handleUpdateRole}
-            roles={assignableRoles}
+            roles={roles}
           />
         )}
       </Modal>
@@ -1012,7 +1016,7 @@ function OrganizationPeopleAccess() {
             mode="invite"
             onCancel={() => setIsInviteOpen(false)}
             onSubmit={handleInviteMember}
-            roles={assignableRoles}
+            roles={roles}
           />
         )}
       </Modal>
@@ -1187,6 +1191,7 @@ function PlatformPeopleAccess() {
     status: 'active',
   })
   const [editingMember, setEditingMember] = useState(null)
+  const [isInviteOpen, setIsInviteOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [memberRoles, setMemberRoles] = useState([])
@@ -1199,6 +1204,11 @@ function PlatformPeopleAccess() {
   const [users, setUsers] = useState([])
 
   const canViewPlatformUsers = hasPlatformPermission('platform.users.manage')
+  const platformOrganizations = organizations.map(unwrapOrganization)
+  const selectedInviteOrganization =
+    platformOrganizations.find(
+      (organization) => organization?.id === filters.organizationId,
+    ) ?? null
 
   const updateFilters = useCallback((updater) => {
     setPage(1)
@@ -1279,6 +1289,51 @@ function PlatformPeopleAccess() {
     }
   }
 
+  async function openInviteMember() {
+    if (!selectedInviteOrganization) {
+      notifications.info('Select an organization before inviting a member.')
+      return
+    }
+
+    setError(null)
+    setIsSaving(true)
+
+    try {
+      const rolesData = await getRoles(selectedInviteOrganization.id, {
+        page: 1,
+        pageSize: 100,
+      })
+
+      setMemberRoles(rolesData.roles ?? [])
+      setIsInviteOpen(true)
+    } catch (requestError) {
+      setError(requestError)
+      notifications.error(getFriendlyErrorMessage(requestError))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function handleInviteMember(values) {
+    if (!selectedInviteOrganization) return
+
+    setError(null)
+    setIsSaving(true)
+
+    try {
+      await inviteOrganizationMember(selectedInviteOrganization.id, values)
+      notifications.success(`Invitation sent to ${values.name}.`)
+      setIsInviteOpen(false)
+      setMemberRoles([])
+      await loadData()
+    } catch (requestError) {
+      setError(requestError)
+      notifications.error(getFriendlyErrorMessage(requestError))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   async function openEditMember(row) {
     if (!row.member || !row.organization) return
     setError(null)
@@ -1289,7 +1344,7 @@ function PlatformPeopleAccess() {
         page: 1,
         pageSize: 100,
       })
-      setMemberRoles((rolesData.roles ?? []).filter((role) => role.canAssign !== false))
+      setMemberRoles(rolesData.roles ?? [])
       setEditingMember({
         member: row.member,
         organization: row.organization,
@@ -1405,11 +1460,16 @@ function PlatformPeopleAccess() {
             across the platform.
           </p>
         </div>
-        <RefreshIconButton
-          disabled={isLoading}
-          label="Refresh people"
-          onClick={() => void loadData()}
-        />
+        <div className="inline-actions">
+          <Button disabled={isSaving} onClick={() => void openInviteMember()}>
+            Invite member
+          </Button>
+          <RefreshIconButton
+            disabled={isLoading}
+            label="Refresh people"
+            onClick={() => void loadData()}
+          />
+        </div>
       </header>
 
       {error && (
@@ -1432,10 +1492,7 @@ function PlatformPeopleAccess() {
             value={filters.organizationId}
           >
             <option value="">All organizations</option>
-            {organizations.map((organizationRecord) => {
-              const organization =
-                organizationRecord.organization ?? organizationRecord
-
+            {platformOrganizations.map((organization) => {
               return (
                 <option key={organization.id} value={organization.id}>
                   {organization.name}
@@ -1504,6 +1561,36 @@ function PlatformPeopleAccess() {
       </section>
 
       <DetailsModal item={selectedDetails} onClose={() => setSelectedDetails(null)} />
+
+      <Modal
+        isOpen={isInviteOpen}
+        onClose={() => {
+          if (isSaving) return
+          setIsInviteOpen(false)
+          setMemberRoles([])
+        }}
+        title="Invite organization member"
+      >
+        {error && <Alert>{getFriendlyErrorMessage(error)}</Alert>}
+        {isInviteOpen && selectedInviteOrganization && (
+          <>
+            <p className="muted-copy">
+              Organization: <strong>{selectedInviteOrganization.name}</strong>
+            </p>
+            <MemberForm
+              isSaving={isSaving}
+              key={`platform-invite-${selectedInviteOrganization.id}`}
+              mode="invite"
+              onCancel={() => {
+                setIsInviteOpen(false)
+                setMemberRoles([])
+              }}
+              onSubmit={handleInviteMember}
+              roles={memberRoles}
+            />
+          </>
+        )}
+      </Modal>
 
       <Modal
         isOpen={Boolean(editingMember)}

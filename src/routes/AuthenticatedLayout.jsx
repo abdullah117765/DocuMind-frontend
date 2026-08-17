@@ -90,6 +90,9 @@ function Icon({ className = '', name, size = 18 }) {
           <path d="M8 21h8M12 17v4" {...commonProps} />
         </>
       )}
+      {name === 'activity' && (
+        <path d="M22 12h-4l-3 8-6-16-3 8H2" {...commonProps} />
+      )}
       {name === 'sun' && (
         <>
           <circle cx="12" cy="12" r="4" {...commonProps} />
@@ -169,7 +172,7 @@ export function AuthenticatedLayout({ children }) {
   const canViewTeam = canManageMembers || hasPermission('analytics.view')
   const shouldShowOrganizationPeople = canViewTeam && !canAccessPlatformUsers
   const shouldShowSidebarOrganizationSwitcher =
-    organizations.length > 0
+    isSuperAdmin && organizations.length > 0
   const shouldShowOrganizationGroup =
     selectedOrganization &&
     (canReadDocuments ||
