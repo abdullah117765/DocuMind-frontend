@@ -9,17 +9,24 @@ import { useNotifications } from '../../../shared/useNotifications.js'
 import { useAccessControl } from '../../access-control/hooks/useAccessControl.js'
 import {
   askRagDocuments,
+  deleteRagChat,
+  getRagChat,
   getOrganizationDocumentContentUrl,
   getRagDocumentStatuses,
+  listRagChats,
   listOrganizationDocuments,
   reindexRagDocuments,
   searchRagDocuments,
 } from '../services/documentsApi.js'
+import {
+  listKnowledgeBaseCollections,
+  listKnowledgeBases,
+} from '../../knowledge-bases/services/knowledgeBasesApi.js'
 
 const MAX_SELECTED_DOCUMENTS = 50
 const DEFAULT_DOCUMENT_PAGE_SIZE = 10
 const RAG_STATUS_LABELS = {
-  FAILED: 'Failed',
+  FAILED: 'Needs attention',
   INDEXED: 'Ready',
   INDEXING: 'Preparing',
   NOT_INDEXED: 'Needs preparation',
@@ -77,6 +84,31 @@ function RagIcon({ name, size = 18 }) {
           <path d="M18 3v5h-5" {...commonProps} />
           <path d="M21 12a9 9 0 0 1-15.2 6.5" {...commonProps} />
           <path d="M6 21v-5h5" {...commonProps} />
+        </>
+      )}
+      {name === 'plus' && (
+        <>
+          <path d="M12 5v14M5 12h14" {...commonProps} />
+        </>
+      )}
+      {name === 'trash' && (
+        <>
+          <path d="M3 6h18" {...commonProps} />
+          <path d="M8 6V4h8v2" {...commonProps} />
+          <path d="M19 6l-1 14H6L5 6" {...commonProps} />
+        </>
+      )}
+      {name === 'history' && (
+        <>
+          <path d="M3 12a9 9 0 1 0 3-6.7" {...commonProps} />
+          <path d="M3 4v5h5" {...commonProps} />
+          <path d="M12 7v5l3 2" {...commonProps} />
+        </>
+      )}
+      {name === 'quote' && (
+        <>
+          <path d="M9 7H5v6h4v4l3-4V7Z" {...commonProps} />
+          <path d="M19 7h-4v6h4v4l3-4V7Z" {...commonProps} />
         </>
       )}
     </svg>
@@ -157,6 +189,14 @@ function formatProcessingTime(value) {
   return `${(numericValue / 1000).toFixed(1)} s`
 }
 
+function cleanUiText(value = '') {
+  return String(value).replace(/\u00c2\u00b7/g, ' - ')
+}
+
+function cleanUiTextLegacy(value = '') {
+  return String(value).replace(/\u00c2\u00b7/g, '·')
+}
+
 function normalizeAnswerMarkdown(text = '') {
   return String(text)
     .replace(/\r\n/g, '\n')
@@ -213,50 +253,290 @@ function AnswerMarkdown({ text }) {
   )
 }
 
-function getSourceDocuments(response) {
-  const rawSources = [
-    ...(response?.sources ?? []),
-    ...(response?.search_results ?? []),
-    ...(response?.results ?? []),
-  ]
-  const byDocument = new Map()
+function getSourceDocumentId(source) {
+  return source?.document_id ?? source?.documentId ?? ''
+}
 
-  for (const source of rawSources) {
-    if (!source?.document_id) continue
-
-    const existing = byDocument.get(source.document_id)
-    const nextScore = Number(source.score)
-    const existingScore = Number(existing?.score)
-
-    if (
-      !existing ||
-      (Number.isFinite(nextScore) ? nextScore : 0) >
-        (Number.isFinite(existingScore) ? existingScore : 0)
-    ) {
-      byDocument.set(source.document_id, source)
-    }
-  }
-
-  return [...byDocument.values()].sort(
-    (left, right) =>
-      (Number.isFinite(Number(right.score)) ? Number(right.score) : 0) -
-      (Number.isFinite(Number(left.score)) ? Number(left.score) : 0),
+function getSourceDocumentName(source) {
+  return (
+    source?.document_name ||
+    source?.documentName ||
+    source?.original_filename ||
+    source?.originalFilename ||
+    'Document'
   )
 }
 
+function getSourceOriginalFilename(source) {
+  return source?.original_filename || source?.originalFilename || ''
+}
+
+function getSourceFileType(source) {
+  return source?.file_type || source?.fileType || source?.extension || 'DOC'
+}
+
+function getSourceVersion(source) {
+  return source?.version_number ?? source?.versionNumber ?? null
+}
+
+function getSourceScore(source) {
+  const rawScore = source?.score
+
+  if (rawScore === null || rawScore === undefined || rawScore === '') return null
+
+  const score = Number(rawScore)
+
+  return Number.isFinite(score) ? score : null
+}
+
+function getSourceMetadata(source) {
+  return source?.metadata && typeof source.metadata === 'object'
+    ? source.metadata
+    : {}
+}
+
+function toPositiveInteger(value) {
+  const number = Number(value)
+
+  return Number.isSafeInteger(number) && number > 0 ? number : null
+}
+
+function getSourceNumber(source) {
+  const metadata = getSourceMetadata(source)
+  const candidates = [
+    source?.__citationNumber,
+    source?.source_number,
+    source?.sourceNumber,
+    source?.citation_number,
+    source?.citationNumber,
+    metadata.source_number,
+    metadata.sourceNumber,
+    metadata.citation_number,
+    metadata.citationNumber,
+  ]
+
+  for (const value of candidates) {
+    const number = toPositiveInteger(value)
+
+    if (number !== null) return number
+  }
+
+  return null
+}
+
+function getCitationNumber(source, index) {
+  return getSourceNumber(source) ?? index + 1
+}
+
+function getReferencedSourceNumbers(text) {
+  if (typeof text !== 'string' || !text.trim()) return new Set()
+
+  const references = new Set()
+  const citationPattern = /\[([\d,\s]+)\]/g
+  let match = citationPattern.exec(text)
+
+  while (match) {
+    for (const part of match[1].split(',')) {
+      const number = toPositiveInteger(part.trim())
+
+      if (number !== null) references.add(number)
+    }
+
+    match = citationPattern.exec(text)
+  }
+
+  return references
+}
+
+function getSourceText(source) {
+  const metadata = getSourceMetadata(source)
+  const candidates = [
+    source?.text,
+    source?.excerpt,
+    source?.content,
+    metadata.text,
+    metadata.excerpt,
+    metadata.content,
+  ]
+
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.replace(/\s+/g, ' ').trim()
+    }
+  }
+
+  return ''
+}
+
+function getSourceSnippet(source, maxLength = 260) {
+  const text = getSourceText(source)
+
+  if (!text) return ''
+
+  return text.length > maxLength ? `${text.slice(0, maxLength).trim()}...` : text
+}
+
+function getSourceLocationLabel(source) {
+  const metadata = getSourceMetadata(source)
+  const directLabel = source?.location_label || source?.locationLabel
+
+  if (typeof directLabel === 'string' && directLabel.trim()) {
+    return directLabel.trim()
+  }
+
+  const pageNumber =
+    source?.page_number ?? source?.pageNumber ?? metadata.page_number
+  if (pageNumber) return `Page ${pageNumber}`
+
+  const slideNumber =
+    source?.slide_number ?? source?.slideNumber ?? metadata.slide_number
+  if (slideNumber) return `Slide ${slideNumber}`
+
+  const sectionTitle =
+    source?.section_title ?? source?.sectionTitle ?? metadata.section_title
+  if (sectionTitle) return sectionTitle
+
+  const sheetName = source?.sheet_name ?? source?.sheetName ?? metadata.sheet_name
+  const lineStart = source?.line_start ?? source?.lineStart ?? metadata.line_start
+  const lineEnd = source?.line_end ?? source?.lineEnd ?? metadata.line_end
+
+  if (sheetName && lineStart && lineEnd) {
+    return `${sheetName}, lines ${lineStart}-${lineEnd}`
+  }
+
+  if (lineStart && lineEnd) {
+    return lineStart === lineEnd
+      ? `Line ${lineStart}`
+      : `Lines ${lineStart}-${lineEnd}`
+  }
+
+  return ''
+}
+
+function getSourceLocationType(source) {
+  const metadata = getSourceMetadata(source)
+  const type = source?.location_type || source?.locationType || metadata.location_type
+
+  if (typeof type === 'string' && type.trim()) {
+    return type.trim().toLowerCase()
+  }
+
+  const location = getSourceLocationLabel(source).toLowerCase()
+
+  if (location.startsWith('page ')) return 'page'
+  if (location.startsWith('paragraph ')) return 'paragraph'
+  if (location.startsWith('slide ')) return 'slide'
+  if (location.startsWith('table ')) return 'table'
+  if (location.startsWith('line')) return 'lines'
+  if (location.startsWith('sheet')) return 'sheet'
+
+  return ''
+}
+
+function getCitationWhereLabel(source) {
+  const locationLabel = getSourceLocationLabel(source)
+
+  if (locationLabel) return locationLabel
+
+  const chunkIndex = Number(source?.chunk_index ?? source?.chunkIndex)
+
+  if (Number.isSafeInteger(chunkIndex) && chunkIndex >= 0) {
+    return `Passage ${chunkIndex + 1}`
+  }
+
+  return 'Location not available'
+}
+
+function getCitationHelpText(source) {
+  if (getSourceLocationLabel(source)) return ''
+  if (getSourceSnippet(source)) {
+    return 'Exact page or paragraph is not available for this file.'
+  }
+
+  return 'Prepare this file again to add page or paragraph citations.'
+}
+
+function getSourceDisplayLabel(source) {
+  return [
+    getSourceDocumentName(source),
+    getCitationWhereLabel(source),
+  ].join(' - ')
+}
+
+function getSourceDocuments(response, answerText = '') {
+  const rawGroups = [
+    response?.sources,
+    response?.search_results,
+    response?.results,
+  ].filter((group) => Array.isArray(group) && group.length)
+  const referencedNumbers = getReferencedSourceNumbers(
+    answerText || response?.answer || response?.content || '',
+  )
+  const byLocation = new Map()
+
+  for (const group of rawGroups) {
+    group.forEach((source, sourceIndex) => {
+      const documentId = getSourceDocumentId(source)
+      if (!documentId) return
+
+      const sourceNumber = getSourceNumber(source) ?? sourceIndex + 1
+      const enrichedSource = {
+        ...source,
+        __citationNumber: sourceNumber,
+      }
+      const locationLabel = getSourceLocationLabel(enrichedSource)
+      const locationKey = [
+        documentId,
+        sourceNumber,
+        locationLabel,
+        source.chunk_index ?? source.chunkIndex ?? '',
+      ].join(':')
+      const existing = byLocation.get(locationKey)
+      const nextScore = getSourceScore(enrichedSource) ?? 0
+      const existingScore = getSourceScore(existing) ?? 0
+      const nextHasLocation = Boolean(getSourceLocationLabel(enrichedSource))
+      const existingHasLocation = Boolean(getSourceLocationLabel(existing))
+      const nextHasText = Boolean(getSourceSnippet(enrichedSource))
+      const existingHasText = Boolean(getSourceSnippet(existing))
+
+      if (
+        !existing ||
+        (nextHasLocation && !existingHasLocation) ||
+        (nextHasText && !existingHasText) ||
+        nextScore > existingScore
+      ) {
+        byLocation.set(locationKey, enrichedSource)
+      }
+    })
+  }
+
+  let sources = [...byLocation.values()].sort(
+    (left, right) => getCitationNumber(left, 0) - getCitationNumber(right, 0),
+  )
+
+  if (referencedNumbers.size) {
+    const referencedSources = sources.filter((source, index) =>
+      referencedNumbers.has(getCitationNumber(source, index)),
+    )
+
+    if (referencedSources.length) {
+      sources = referencedSources
+    }
+  }
+
+  return sources.slice(0, 10)
+}
+
 function SourceDocumentCard({ organizationId, result }) {
-  const documentName =
-    result.document_name || result.original_filename || 'Document'
-  const fileType =
-    result.file_type || result.fileType || result.extension || 'DOC'
-  const pageLabel =
-    result.page_number || result.pageNumber
-      ? `Page ${result.page_number ?? result.pageNumber}`
-      : null
+  const documentId = getSourceDocumentId(result)
+  const documentName = getSourceDocumentName(result)
+  const fileType = getSourceFileType(result)
+  const locationLabel = getSourceLocationLabel(result)
+  const score = getSourceScore(result)
   const detail = [
-    result.original_filename,
-    pageLabel,
-    result.version_number ? `Version ${result.version_number}` : null,
+    getSourceOriginalFilename(result),
+    locationLabel,
+    getSourceVersion(result) ? `Version ${getSourceVersion(result)}` : null,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -270,31 +550,249 @@ function SourceDocumentCard({ organizationId, result }) {
         <div>
           <strong title={documentName}>{documentName}</strong>
           <small>
-            {detail || 'Used for this answer'}
+            {cleanUiText(detail) || 'Used for this answer'}
           </small>
         </div>
-        {Number.isFinite(Number(result.score)) && (
-          <span className="status-badge">{getScoreLabel(result.score)}</span>
+        {score !== null && (
+          <span className="status-badge">{getScoreLabel(score)}</span>
         )}
       </div>
-      <a
-        className="rag-source-link"
-        href={getOrganizationDocumentContentUrl(organizationId, result.document_id)}
-        rel="noreferrer"
-        target="_blank"
-      >
-        <RagIcon name="open" size={14} /> Open file
-      </a>
+      {documentId && (
+        <a
+          className="rag-source-link"
+          href={getOrganizationDocumentContentUrl(organizationId, documentId)}
+          rel="noreferrer"
+          target="_blank"
+        >
+          <RagIcon name="open" size={14} /> Open file
+        </a>
+      )}
     </article>
   )
 }
 
-function buildRagPayload({ query, scope, selectedDocumentIds }) {
+function SourcePill({ organizationId, source, index }) {
+  const sourceDocumentId = getSourceDocumentId(source)
+  const documentName = getSourceDocumentName(source)
+  const whereLabel = getCitationWhereLabel(source)
+  const helpText = getCitationHelpText(source)
+  const sourceType = getSourceLocationType(source)
+  const score = getSourceScore(source)
+  const fileType = getSourceFileType(source)
+  const snippet = getSourceSnippet(source)
+  const citationNumber = getCitationNumber(source, index)
+
+  if (!sourceDocumentId) {
+    return (
+      <span className="rag-citation-card" key={`${source.id ?? documentName}-${index}`}>
+        <span className="rag-citation-card__icon">{citationNumber}</span>
+        <span className="rag-citation-card__body">
+          <strong title={documentName}>{documentName}</strong>
+          <small>
+            Where: <b>{whereLabel}</b>
+          </small>
+          {snippet && (
+            <span className="rag-citation-card__excerpt" title={snippet}>
+              {snippet}
+            </span>
+          )}
+          {helpText && <em>{helpText}</em>}
+        </span>
+      </span>
+    )
+  }
+
+  return (
+    <a
+      className="rag-citation-card"
+      href={getOrganizationDocumentContentUrl(organizationId, sourceDocumentId)}
+      key={`${sourceDocumentId}-${getSourceLocationLabel(source)}-${index}`}
+      rel="noreferrer"
+      title={[getSourceDisplayLabel(source), snippet].filter(Boolean).join(' — ')}
+      target="_blank"
+    >
+      <span className="rag-citation-card__icon">{citationNumber}</span>
+      <span className="rag-citation-card__body">
+        <strong title={documentName}>{documentName}</strong>
+        <small>
+          Where: <b>{whereLabel}</b>
+          {sourceType && <span> - {sourceType}</span>}
+        </small>
+        <small>
+          {fileType.toUpperCase()}
+          {score !== null && ` - ${getScoreLabel(score)}`}
+        </small>
+        {snippet && (
+          <span className="rag-citation-card__excerpt" title={snippet}>
+            {snippet}
+          </span>
+        )}
+        {helpText && <em>{helpText}</em>}
+      </span>
+      <RagIcon name="open" size={14} />
+    </a>
+  )
+}
+
+function CitationToggle({ organizationId, sources }) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  if (!sources.length) return null
+
+  return (
+    <div className="rag-citations">
+      <button
+        className="rag-citation-button"
+        onClick={() => setIsOpen((current) => !current)}
+        type="button"
+      >
+        <RagIcon name="quote" size={14} />
+        {isOpen ? 'Hide citations' : `Show citations (${sources.length})`}
+      </button>
+
+      {isOpen && (
+        <div className="rag-message__sources" aria-label="Answer citations">
+          {sources.map((source, index) => (
+            <SourcePill
+              index={index}
+              key={`${getSourceDocumentId(source)}-${getSourceLocationLabel(source)}-${index}`}
+              organizationId={organizationId}
+              source={source}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ChatMessage({ message, organizationId }) {
+  const isUser = message.role === 'USER'
+  const sources = getSourceDocuments({ sources: message.sources ?? [] }, message.content)
+
+  return (
+    <article
+      className={`rag-message ${isUser ? 'rag-message--user' : 'rag-message--assistant'}`}
+    >
+      <div className="rag-message__meta">
+        <strong>{isUser ? 'You' : 'Documind AI'}</strong>
+        <span>{formatDate(message.createdAt)}</span>
+      </div>
+      <div className="rag-message__bubble">
+        {isUser ? <p>{message.content}</p> : <AnswerMarkdown text={message.content} />}
+      </div>
+      {!isUser && (
+        <CitationToggle organizationId={organizationId} sources={sources} />
+      )}
+      {false && !isUser && sources.length > 0 && (
+        <div className="rag-message__sources" aria-label="Answer sources">
+          {sources.map((source, index) => {
+            const sourceDocumentId = getSourceDocumentId(source)
+            const label = [
+              getSourceDocumentName(source),
+              getSourceLocationLabel(source),
+            ].join(' — ')
+
+            if (!sourceDocumentId) {
+              return (
+                <span
+                  className="rag-source-pill"
+                  key={`${source.id ?? label}-${index}`}
+                  title={label}
+                >
+                  {label}
+                </span>
+              )
+            }
+
+            return (
+              <a
+                className="rag-source-pill"
+                href={getOrganizationDocumentContentUrl(
+                  organizationId,
+                  sourceDocumentId,
+                )}
+                key={`${sourceDocumentId}-${getSourceLocationLabel(source)}-${index}`}
+                rel="noreferrer"
+                title={label}
+                target="_blank"
+              >
+                {label}
+              </a>
+            )
+          })}
+        </div>
+      )}
+    </article>
+  )
+}
+
+function getFocusedChatMessages(messages = []) {
+  if (!messages.length) {
+    return {
+      latestMessages: [],
+      previousMessages: [],
+    }
+  }
+
+  let latestAnswerIndex = -1
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === 'ASSISTANT') {
+      latestAnswerIndex = index
+      break
+    }
+  }
+
+  const endIndex = latestAnswerIndex >= 0 ? latestAnswerIndex : messages.length - 1
+  const startIndex =
+    endIndex > 0 &&
+    messages[endIndex]?.role === 'ASSISTANT' &&
+    messages[endIndex - 1]?.role === 'USER'
+      ? endIndex - 1
+      : endIndex
+
   return {
+    latestMessages: messages.slice(startIndex, endIndex + 1),
+    previousMessages: [
+      ...messages.slice(0, startIndex),
+      ...messages.slice(endIndex + 1),
+    ],
+  }
+}
+
+function buildRagPayload({
+  query,
+  scope,
+  selectedDocumentIds,
+  selectedKnowledgeBaseIds,
+  selectedCollectionIds,
+  chatSessionId,
+}) {
+  return {
+    chatSessionId: chatSessionId || undefined,
     documentIds: scope === 'selected' ? selectedDocumentIds : undefined,
+    knowledgeBaseIds:
+      scope === 'knowledge_base' || scope === 'collection'
+        ? selectedKnowledgeBaseIds
+        : undefined,
+    collectionIds: scope === 'collection' ? selectedCollectionIds : undefined,
     query,
     scope,
   }
+}
+
+function mergeDocumentStatuses(currentStatuses, updatedStatuses) {
+  const byDocumentId = new Map(
+    currentStatuses.map((statusView) => [statusView.documentId, statusView]),
+  )
+
+  for (const statusView of updatedStatuses) {
+    if (!statusView?.documentId) continue
+    byDocumentId.set(statusView.documentId, statusView)
+  }
+
+  return [...byDocumentId.values()]
 }
 
 function RagStatusIndicator({ statusView }) {
@@ -324,6 +822,42 @@ function RagStatusIndicator({ statusView }) {
   )
 }
 
+function RagDocumentOption({
+  disabled,
+  document,
+  indexStatus,
+  onToggle,
+  selected,
+}) {
+  const ragStatus = indexStatus?.status ?? 'NOT_INDEXED'
+  const meta = [
+    document.originalFilename,
+    formatBytes(document.sizeBytes),
+    getActorLabel(document.createdBy),
+  ]
+    .filter(Boolean)
+    .join(' - ')
+
+  return (
+    <label className={`rag-document-option ${selected ? 'rag-document-option--selected' : ''}`}>
+      <input
+        checked={selected}
+        disabled={disabled}
+        onChange={onToggle}
+        type="checkbox"
+      />
+      <span className="file-icon" aria-hidden="true">
+        {document.extension?.slice(0, 3).toUpperCase() || 'DOC'}
+      </span>
+      <span className="rag-document-option__main">
+        <strong title={document.name}>{document.name}</strong>
+        <small title={meta}>{meta}</small>
+      </span>
+      <RagStatusIndicator statusView={indexStatus ?? { status: ragStatus }} />
+    </label>
+  )
+}
+
 function getFriendlyRagStatusMessage(status) {
   if (status === 'INDEXED') return 'Ready for questions.'
   if (status === 'INDEXING') return 'Preparing this file for questions.'
@@ -339,15 +873,24 @@ function getDocumentAiErrorMessage(error, fallback) {
   const lowerMessage = message.toLowerCase()
   const technicalMarkers = [
     'backend',
+    'chunk',
     'document ai service',
+    'embedding',
     'fastapi',
     'hmac',
     'index',
+    'ocr',
+    'pymupdf',
     'qdrant',
     'rag',
     'serviceunavailable',
+    'tesseract',
     'vector',
   ]
+
+  if (lowerMessage.includes('image text extraction failed')) {
+    return 'We could not read text from this image. Try a clearer image or upload a text-based document.'
+  }
 
   if (!message || technicalMarkers.some((marker) => lowerMessage.includes(marker))) {
     return fallback
@@ -372,6 +915,7 @@ export function DocumentRag() {
   const [documents, setDocuments] = useState([])
   const [documentStatuses, setDocumentStatuses] = useState([])
   const [documentFilter, setDocumentFilter] = useState('')
+  const [documentStatusFilter, setDocumentStatusFilter] = useState('')
   const [documentPage, setDocumentPage] = useState(1)
   const [documentPageSize, setDocumentPageSize] = useState(
     DEFAULT_DOCUMENT_PAGE_SIZE,
@@ -384,8 +928,17 @@ export function DocumentRag() {
   const [query, setQuery] = useState('')
   const [resultMode, setResultMode] = useState(null)
   const [scope, setScope] = useState('selected')
+  const [knowledgeBases, setKnowledgeBases] = useState([])
+  const [knowledgeBaseCollections, setKnowledgeBaseCollections] = useState([])
+  const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState([])
+  const [selectedCollectionIds, setSelectedCollectionIds] = useState([])
   const [searchResponse, setSearchResponse] = useState(null)
   const [selectedDocumentIds, setSelectedDocumentIds] = useState([])
+  const [chatSessions, setChatSessions] = useState([])
+  const [chatMessages, setChatMessages] = useState([])
+  const [currentChatId, setCurrentChatId] = useState('')
+  const [isChatsLoading, setIsChatsLoading] = useState(false)
+  const [isOpeningChat, setIsOpeningChat] = useState(false)
 
   const statusByDocumentId = useMemo(
     () =>
@@ -402,7 +955,7 @@ export function DocumentRag() {
   const isSelectionRequired = scope === 'selected'
   const hasSelectedTooMany = selectedCount > MAX_SELECTED_DOCUMENTS
   const sourceDocuments = useMemo(
-    () => getSourceDocuments(searchResponse),
+    () => getSourceDocuments(searchResponse, searchResponse?.answer),
     [searchResponse],
   )
   const selectedStatusViews = useMemo(
@@ -434,6 +987,14 @@ export function DocumentRag() {
     (statusView) => !isRagStatusReady(statusView.status),
   ).length
   const askAiProcessing = isSearching && resultMode === 'ask'
+  const currentChat = useMemo(
+    () => chatSessions.find((chat) => chat.id === currentChatId) ?? null,
+    [chatSessions, currentChatId],
+  )
+  const focusedChat = useMemo(
+    () => getFocusedChatMessages(chatMessages),
+    [chatMessages],
+  )
 
   const loadRagData = useCallback(async () => {
     if (!organizationId || !canReadDocuments) return
@@ -442,14 +1003,16 @@ export function DocumentRag() {
     setError(null)
 
     try {
-      const [documentList, statuses] = await Promise.all([
+      const [documentList, statuses, knowledgeBaseList] = await Promise.all([
         listOrganizationDocuments(organizationId, {
           page: documentPage,
           pageSize: documentPageSize,
+          ragStatus: documentStatusFilter,
           search: documentFilter.trim(),
           view: 'active',
         }),
         getRagDocumentStatuses(organizationId),
+        listKnowledgeBases(organizationId, { page: 1, pageSize: 100 }),
       ])
 
       if (
@@ -464,6 +1027,7 @@ export function DocumentRag() {
       setDocuments(documentList.documents ?? [])
       setDocumentPagination(documentList.pagination ?? null)
       setDocumentStatuses(statuses ?? [])
+      setKnowledgeBases(knowledgeBaseList.knowledgeBases ?? [])
     } catch (requestError) {
       setError(requestError)
       notifications.error(
@@ -480,6 +1044,7 @@ export function DocumentRag() {
     documentFilter,
     documentPage,
     documentPageSize,
+    documentStatusFilter,
     notifications,
     organizationId,
   ])
@@ -495,6 +1060,28 @@ export function DocumentRag() {
     }
   }, [canReadDocuments, organizationId])
 
+  const loadRagChats = useCallback(async () => {
+    if (!organizationId || !canAskDocuments) {
+      setChatSessions([])
+      return
+    }
+
+    setIsChatsLoading(true)
+
+    try {
+      setChatSessions(await listRagChats(organizationId))
+    } catch (requestError) {
+      notifications.error(
+        getDocumentAiErrorMessage(
+          requestError,
+          'We could not load your chat history. Refresh the page and try again.',
+        ),
+      )
+    } finally {
+      setIsChatsLoading(false)
+    }
+  }, [canAskDocuments, notifications, organizationId])
+
   useEffect(() => {
     if (status === 'ready') {
       const handle = window.setTimeout(() => {
@@ -504,6 +1091,56 @@ export function DocumentRag() {
       return () => window.clearTimeout(handle)
     }
   }, [loadRagData, status])
+
+  useEffect(() => {
+    setCurrentChatId('')
+    setChatMessages([])
+    setSearchResponse(null)
+    setQuery('')
+    setSelectedKnowledgeBaseIds([])
+    setSelectedCollectionIds([])
+  }, [organizationId])
+
+  useEffect(() => {
+    let active = true
+
+    if (!organizationId || selectedKnowledgeBaseIds.length === 0) {
+      setKnowledgeBaseCollections([])
+      setSelectedCollectionIds([])
+      return undefined
+    }
+
+    Promise.all(
+      selectedKnowledgeBaseIds.map((knowledgeBaseId) =>
+        listKnowledgeBaseCollections(organizationId, knowledgeBaseId),
+      ),
+    )
+      .then((collectionGroups) => {
+        if (!active) return
+        const nextCollections = collectionGroups.flat()
+        setKnowledgeBaseCollections(nextCollections)
+        setSelectedCollectionIds((current) =>
+          current.filter((collectionId) =>
+            nextCollections.some((collection) => collection.id === collectionId),
+          ),
+        )
+      })
+      .catch(() => {
+        if (!active) return
+        setKnowledgeBaseCollections([])
+        setSelectedCollectionIds([])
+      })
+
+    return () => {
+      active = false
+    }
+  }, [organizationId, selectedKnowledgeBaseIds])
+
+  useEffect(() => {
+    if (status === 'ready') {
+      void loadRagChats()
+    }
+  }, [loadRagChats, status])
 
   useEffect(() => {
     if (
@@ -555,6 +1192,112 @@ export function DocumentRag() {
     }
   }
 
+  function toggleKnowledgeBase(knowledgeBaseId) {
+    setSelectedKnowledgeBaseIds((current) => {
+      const next = current.includes(knowledgeBaseId)
+        ? current.filter((selectedId) => selectedId !== knowledgeBaseId)
+        : [...current, knowledgeBaseId]
+
+      setSelectedCollectionIds([])
+      return next
+    })
+  }
+
+  function toggleCollection(collectionId) {
+    setSelectedCollectionIds((current) =>
+      current.includes(collectionId)
+        ? current.filter((selectedId) => selectedId !== collectionId)
+        : [...current, collectionId],
+    )
+  }
+
+  function handleNewChat() {
+    setCurrentChatId('')
+    setChatMessages([])
+    setSearchResponse(null)
+    setResultMode(null)
+    setQuery('')
+  }
+
+  function handleScopeChange(nextScope) {
+    setScope(nextScope)
+
+    if (nextScope === 'all') {
+      setSelectedDocumentIds([])
+    }
+
+    if (nextScope === 'selected') {
+      setSelectedKnowledgeBaseIds([])
+      setSelectedCollectionIds([])
+    }
+
+    if (nextScope === 'knowledge_base') {
+      setSelectedDocumentIds([])
+      setSelectedCollectionIds([])
+    }
+
+    if (nextScope === 'collection') {
+      setSelectedDocumentIds([])
+    }
+  }
+
+  async function handleOpenChat(chatSessionId) {
+    if (!chatSessionId || isOpeningChat) return
+
+    setIsOpeningChat(true)
+    setError(null)
+
+    try {
+      const chatDetail = await getRagChat(organizationId, chatSessionId)
+      const selectedIds = chatDetail.chat?.selectedDocumentIds ?? []
+
+      setCurrentChatId(chatDetail.chat?.id ?? chatSessionId)
+      setChatMessages(chatDetail.messages ?? [])
+      setSelectedDocumentIds(selectedIds)
+      setScope(selectedIds.length > 0 ? 'selected' : 'all')
+      setSearchResponse(null)
+      setResultMode(null)
+      setQuery('')
+    } catch (requestError) {
+      setError(requestError)
+      notifications.error(
+        getDocumentAiErrorMessage(
+          requestError,
+          'We could not open that chat. Refresh the page and try again.',
+        ),
+      )
+    } finally {
+      setIsOpeningChat(false)
+    }
+  }
+
+  async function handleDeleteChat(chatSessionId) {
+    if (!chatSessionId) return
+
+    const confirmed = window.confirm('Delete this chat from your history?')
+    if (!confirmed) return
+
+    try {
+      await deleteRagChat(organizationId, chatSessionId)
+      setChatSessions((current) =>
+        current.filter((chat) => chat.id !== chatSessionId),
+      )
+
+      if (currentChatId === chatSessionId) {
+        handleNewChat()
+      }
+
+      notifications.success('Chat deleted.')
+    } catch (requestError) {
+      notifications.error(
+        getDocumentAiErrorMessage(
+          requestError,
+          'We could not delete that chat. Please try again.',
+        ),
+      )
+    }
+  }
+
   function validateRagRequest(mode) {
     if (!query.trim()) {
       notifications.info('Enter a question first.')
@@ -568,6 +1311,23 @@ export function DocumentRag() {
           : 'Select at least one file before finding matches.',
       )
       return false
+    }
+
+    if (scope === 'knowledge_base' && selectedKnowledgeBaseIds.length === 0) {
+      notifications.info('Select at least one Knowledge Base before asking AI.')
+      return false
+    }
+
+    if (scope === 'collection') {
+      if (selectedKnowledgeBaseIds.length === 0) {
+        notifications.info('Select a Knowledge Base before choosing Collections.')
+        return false
+      }
+
+      if (selectedCollectionIds.length === 0) {
+        notifications.info('Select at least one Collection before asking AI.')
+        return false
+      }
     }
 
     if (hasSelectedTooMany) {
@@ -614,16 +1374,27 @@ export function DocumentRag() {
 
     try {
       const payload = buildRagPayload({
+        chatSessionId: mode === 'ask' ? currentChatId : '',
         query: query.trim(),
         scope,
         selectedDocumentIds,
+        selectedKnowledgeBaseIds,
+        selectedCollectionIds,
       })
       const response =
         mode === 'ask'
           ? await askRagDocuments(organizationId, payload)
           : await searchRagDocuments(organizationId, payload)
 
-      setSearchResponse(response)
+      if (mode === 'ask' && response.chatMessages?.length) {
+        setCurrentChatId(response.chatSession?.id ?? currentChatId)
+        setChatMessages((current) => [...current, ...response.chatMessages])
+        setSearchResponse(null)
+        setQuery('')
+        void loadRagChats()
+      } else {
+        setSearchResponse(response)
+      }
     } catch (requestError) {
       setError(requestError)
       notifications.error(
@@ -639,15 +1410,13 @@ export function DocumentRag() {
     }
   }
 
-  async function handleReindex() {
+  async function prepareFilesForAi(targetIds, successMessage) {
     if (isReindexing) {
       notifications.info('File preparation is already running. Watch the file status for progress.')
       return
     }
 
-    const targetIds = scope === 'selected' ? selectedDocumentIds : []
-
-    if (scope === 'selected' && targetIds.length === 0) {
+    if (Array.isArray(targetIds) && targetIds.length === 0) {
       notifications.error('Select at least one file before preparing it for AI.')
       return
     }
@@ -657,18 +1426,21 @@ export function DocumentRag() {
 
     try {
       const statuses = await reindexRagDocuments(organizationId, {
-        documentIds: targetIds.length ? targetIds : undefined,
+        documentIds: targetIds?.length ? targetIds : undefined,
       })
 
-      setDocumentStatuses(statuses ?? [])
+      setDocumentStatuses((currentStatuses) =>
+        mergeDocumentStatuses(currentStatuses, statuses ?? []),
+      )
       const workingCount = (statuses ?? []).filter((statusView) =>
         isRagStatusWorking(statusView.status),
       ).length
 
       notifications.success(
-        workingCount > 0
+        successMessage ??
+          (workingCount > 0
           ? `Preparing ${workingCount} file(s). Status will update automatically.`
-          : 'Selected file(s) are already ready.',
+          : 'Selected file(s) are already ready.'),
       )
     } catch (requestError) {
       setError(requestError)
@@ -681,6 +1453,12 @@ export function DocumentRag() {
     } finally {
       setIsReindexing(false)
     }
+  }
+
+  async function handleReindex() {
+    const targetIds = scope === 'selected' ? selectedDocumentIds : undefined
+
+    await prepareFilesForAi(targetIds)
   }
 
   if (status === 'loading' || status === 'idle') {
@@ -723,11 +1501,9 @@ export function DocumentRag() {
     <main className="page page--wide page--rag">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Document intelligence</p>
           <h1>Ask documents</h1>
           <p>
-            Search or ask questions from files you can already access in{' '}
-            {organizationName}. Choose selected files for tighter, safer answers.
+            Ask questions from files you can access in {organizationName}.
           </p>
         </div>
         <RefreshIconButton
@@ -752,7 +1528,340 @@ export function DocumentRag() {
         </Alert>
       )}
 
-      <section className="card rag-query-card">
+      <section className={`rag-workspace ${!canAskDocuments ? 'rag-workspace--single' : ''}`}>
+        {canAskDocuments && (
+        <aside className="card rag-chat-panel">
+          <div className="section-heading">
+            <div>
+              <span className="card__label">History</span>
+              <h2>Chats</h2>
+            </div>
+            <button
+              className="icon-button"
+              onClick={handleNewChat}
+              title="Start a new chat"
+              type="button"
+            >
+              <RagIcon name="plus" size={16} />
+            </button>
+          </div>
+
+          {isChatsLoading ? (
+            <Loader label="Loading chats..." />
+          ) : chatSessions.length ? (
+            <div className="rag-chat-list">
+              {chatSessions.map((chat) => {
+                const isActive = chat.id === currentChatId
+                const lastMessage = chat.lastMessage?.content || 'No messages yet'
+
+                return (
+                  <article
+                    className={`rag-chat-item ${isActive ? 'rag-chat-item--active' : ''}`}
+                    key={chat.id}
+                  >
+                    <button
+                      className="rag-chat-item__button"
+                      disabled={isOpeningChat}
+                      onClick={() => void handleOpenChat(chat.id)}
+                      type="button"
+                    >
+                      <span aria-hidden="true" className="rag-chat-item__icon">
+                        <RagIcon name="history" size={15} />
+                      </span>
+                      <span className="rag-chat-item__content">
+                        <strong title={chat.title}>{chat.title}</strong>
+                        <small title={lastMessage}>{lastMessage}</small>
+                        <em>{formatDate(chat.updatedAt)}</em>
+                      </span>
+                    </button>
+                    <button
+                      className="rag-chat-item__delete"
+                      onClick={() => void handleDeleteChat(chat.id)}
+                      title="Delete chat"
+                      type="button"
+                    >
+                      <RagIcon name="trash" size={14} />
+                    </button>
+                  </article>
+                )
+              })}
+            </div>
+          ) : (
+            <section className="empty-state empty-state--compact rag-chat-empty">
+              <div>
+                <h2>No chats yet</h2>
+                <p>Ask a question to save your first document chat.</p>
+              </div>
+            </section>
+          )}
+        </aside>
+        )}
+
+        <div className="rag-main-panel">
+          <section className="card rag-ask-card">
+            <label className="field rag-question-field" htmlFor="rag-question-clean">
+              <textarea
+                id="rag-question-clean"
+                maxLength={4000}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                    event.preventDefault()
+                    void runRagRequest('ask')
+                  }
+                }}
+                placeholder="Ask something about your documents..."
+                rows={4}
+                value={query}
+              />
+              <span className="field__hint rag-question-hint">
+                <span>Press Ctrl/⌘ Enter to ask</span>
+                <span>{query.trim().length}/4000</span>
+              </span>
+            </label>
+
+            <div className="rag-scope-block">
+              <span className="card__label">Knowledge scope</span>
+              <div className="rag-scope-toggle" role="group" aria-label="Choose answer scope">
+                <button
+                  className={scope === 'knowledge_base' ? 'is-active' : ''}
+                  onClick={() => handleScopeChange('knowledge_base')}
+                  type="button"
+                >
+                  Knowledge Bases
+                </button>
+                <button
+                  className={scope === 'collection' ? 'is-active' : ''}
+                  onClick={() => handleScopeChange('collection')}
+                  type="button"
+                >
+                  Collections
+                </button>
+                <button
+                  className={scope === 'selected' ? 'is-active' : ''}
+                  onClick={() => handleScopeChange('selected')}
+                  type="button"
+                >
+                  Documents
+                </button>
+                <button
+                  className={scope === 'all' ? 'is-active' : ''}
+                  onClick={() => handleScopeChange('all')}
+                  type="button"
+                >
+                  All readable files
+                </button>
+              </div>
+              {scope === 'selected' ? (
+                <p className="rag-selected-summary">
+                  {selectedCount} file{selectedCount === 1 ? '' : 's'} selected
+                  {selectedCount > 0 && (
+                    <button onClick={() => setSelectedDocumentIds([])} type="button">
+                      Clear
+                    </button>
+                  )}
+                </p>
+              ) : scope === 'all' ? (
+                <p className="rag-selected-summary">
+                  AI will search every readable file in this organization.
+                </p>
+              ) : (
+                <p className="rag-selected-summary">
+                  AI will search the selected Knowledge Base scope.
+                </p>
+              )}
+              {(scope === 'knowledge_base' || scope === 'collection') && (
+                <div className="rag-scope-picker">
+                  <span className="field__label">Knowledge Bases</span>
+                  {knowledgeBases.length === 0 ? (
+                    <p className="field__hint">
+                      No Knowledge Bases are available yet.
+                    </p>
+                  ) : (
+                    <div className="rag-scope-options">
+                      {knowledgeBases.map((knowledgeBase) => (
+                        <label key={knowledgeBase.id} className="rag-scope-option">
+                          <input
+                            checked={selectedKnowledgeBaseIds.includes(
+                              knowledgeBase.id,
+                            )}
+                            onChange={() => toggleKnowledgeBase(knowledgeBase.id)}
+                            type="checkbox"
+                          />
+                          <span>
+                            <strong>{knowledgeBase.name}</strong>
+                            <small>
+                              {knowledgeBase.counts?.documents ?? 0} document
+                              {(knowledgeBase.counts?.documents ?? 0) === 1
+                                ? ''
+                                : 's'}
+                            </small>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {scope === 'collection' && selectedKnowledgeBaseIds.length > 0 && (
+                <div className="rag-scope-picker">
+                  <span className="field__label">Collections</span>
+                  {knowledgeBaseCollections.length === 0 ? (
+                    <p className="field__hint">
+                      No Collections are available for the selected Knowledge Base.
+                    </p>
+                  ) : (
+                    <div className="rag-scope-options">
+                      {knowledgeBaseCollections.map((collection) => {
+                        const knowledgeBase = knowledgeBases.find(
+                          (kb) => kb.id === collection.knowledgeBaseId,
+                        )
+
+                        return (
+                          <label key={collection.id} className="rag-scope-option">
+                            <input
+                              checked={selectedCollectionIds.includes(collection.id)}
+                              onChange={() => toggleCollection(collection.id)}
+                              type="checkbox"
+                            />
+                            <span>
+                              <strong>{collection.name}</strong>
+                              <small>{knowledgeBase?.name ?? 'Knowledge Base'}</small>
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {isSelectionRequired && selectedCount === 0 && (
+              <p className="field__hint">Select one or more files before asking AI.</p>
+            )}
+
+            <div className="rag-ask-actions">
+              <Button
+                disabled={isSearching}
+                onClick={() => void runRagRequest('search')}
+                variant="secondary"
+              >
+                <RagIcon name="search" size={15} />
+                {isSearching && resultMode === 'search'
+                  ? 'Finding...'
+                  : 'Find matching files'}
+              </Button>
+              {canReindexDocuments && (
+                <Button
+                  disabled={isReindexing || isLoading}
+                  onClick={() => void handleReindex()}
+                  variant="secondary"
+                >
+                  <RagIcon name="refresh" size={15} />
+                  {isReindexing ? 'Preparing...' : 'Prepare files for AI'}
+                </Button>
+              )}
+              <Button
+                disabled={isSearching || !canAskDocuments}
+                onClick={() => void runRagRequest('ask')}
+              >
+                <RagIcon name="spark" size={15} />
+                {askAiProcessing ? 'Working...' : 'Ask AI'}
+              </Button>
+            </div>
+          </section>
+
+          {scope === 'selected' && (
+          <section className="card rag-files-card">
+            <div className="rag-files-header">
+              <div>
+                <strong>
+                  Files
+                  {selectedCount > 0 && <span>{selectedCount} selected</span>}
+                </strong>
+                {documentPagination && (
+                  <small>
+                    {documentPagination.total} file
+                    {documentPagination.total === 1 ? '' : 's'} · page{' '}
+                    {documentPagination.page} of {documentPagination.pageCount}
+                  </small>
+                )}
+              </div>
+              <div className="rag-files-filters">
+                <select
+                  aria-label="Filter by file status"
+                  onChange={(event) => {
+                    setDocumentStatusFilter(event.target.value)
+                    setDocumentPage(1)
+                  }}
+                  value={documentStatusFilter}
+                >
+                  <option value="">All statuses</option>
+                  <option value="ready">Ready</option>
+                  <option value="preparing">Preparing</option>
+                  <option value="needs_attention">Needs attention</option>
+                  <option value="no_readable_text">No readable text</option>
+                </select>
+                <input
+                  aria-label="Search files"
+                  onChange={(event) => {
+                    setDocumentFilter(event.target.value)
+                    setDocumentPage(1)
+                  }}
+                  placeholder="Search files..."
+                  type="search"
+                  value={documentFilter}
+                />
+              </div>
+            </div>
+
+            {isLoading ? (
+              <Loader label="Loading files..." />
+            ) : documents.length ? (
+              <div className="rag-document-list rag-document-list--clean">
+                {documents.map((document) => {
+                  const selected = selectedDocumentIds.includes(document.id)
+                  const indexStatus = statusByDocumentId.get(document.id)
+                  const disabled =
+                    !selected && selectedCount >= MAX_SELECTED_DOCUMENTS
+
+                  return (
+                    <RagDocumentOption
+                      disabled={disabled}
+                      document={document}
+                      indexStatus={indexStatus}
+                      key={document.id}
+                      onToggle={() => toggleDocument(document.id)}
+                      selected={selected}
+                    />
+                  )
+                })}
+              </div>
+            ) : (
+              <section className="empty-state empty-state--compact">
+                <div>
+                  <h2>No readable files found</h2>
+                  <p>Try a different filter or upload documents first.</p>
+                </div>
+              </section>
+            )}
+
+            <ListPagination
+              label="Ask Documents file pagination"
+              onPageChange={setDocumentPage}
+              onPageSizeChange={(nextPageSize) => {
+                setDocumentPageSize(nextPageSize)
+                setDocumentPage(1)
+              }}
+              pageSize={documentPageSize}
+              pagination={documentPagination}
+            />
+          </section>
+          )}
+
+      {false && (
+      <section className="card rag-query-card rag-legacy-query-card">
         <div className="rag-query-card__intro">
           <span aria-hidden="true" className="file-icon file-icon--large">
             <RagIcon name="spark" size={22} />
@@ -784,7 +1893,7 @@ export function DocumentRag() {
           <label className="field">
             <span className="field__label">Files to search</span>
             <select
-              onChange={(event) => setScope(event.target.value)}
+              onChange={(event) => handleScopeChange(event.target.value)}
               value={scope}
             >
               <option value="selected">Selected files only</option>
@@ -875,6 +1984,18 @@ export function DocumentRag() {
                       <span className="rag-document-option__main">
                         <strong>{document.name}</strong>
                         <small>
+                          {[
+                            document.originalFilename,
+                            formatBytes(document.sizeBytes),
+                            getActorLabel(document.createdBy),
+                            indexStatus?.updatedAt
+                              ? `ready ${formatDate(indexStatus.updatedAt)}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </small>
+                        <small className="rag-hidden-meta" aria-hidden="true">
                           {document.originalFilename} · {formatBytes(document.sizeBytes)} ·{' '}
                           {getActorLabel(document.createdBy)}
                           {indexStatus?.updatedAt
@@ -951,6 +2072,53 @@ export function DocumentRag() {
           )}
         </div>
       </section>
+      )}
+
+          {chatMessages.length > 0 && (
+            <section className="card rag-conversation-card">
+              <div className="section-heading">
+                <div>
+                  <span className="card__label">Conversation</span>
+                  <h2>{currentChat?.title || 'Current chat'}</h2>
+                </div>
+                <span className="status-badge">
+                  {chatMessages.length} message
+                  {chatMessages.length === 1 ? '' : 's'}
+                </span>
+              </div>
+
+              <div className="rag-message-list rag-message-list--latest">
+                {focusedChat.latestMessages.map((message) => (
+                  <ChatMessage
+                    key={message.id}
+                    message={message}
+                    organizationId={organizationId}
+                  />
+                ))}
+              </div>
+
+              {focusedChat.previousMessages.length > 0 && (
+                <details className="rag-previous-messages">
+                  <summary>
+                    Previous messages
+                    <span>
+                      {focusedChat.previousMessages.length} message
+                      {focusedChat.previousMessages.length === 1 ? '' : 's'}
+                    </span>
+                  </summary>
+                  <div className="rag-message-list rag-message-list--previous">
+                    {focusedChat.previousMessages.map((message) => (
+                      <ChatMessage
+                        key={message.id}
+                        message={message}
+                        organizationId={organizationId}
+                      />
+                    ))}
+                  </div>
+                </details>
+              )}
+            </section>
+          )}
 
       {searchResponse && (
         <section className="rag-results">
@@ -965,25 +2133,35 @@ export function DocumentRag() {
                 </div>
               </div>
               <AnswerMarkdown text={searchResponse.answer} />
-              {sourceDocuments.length > 0 && (
+              <CitationToggle
+                organizationId={organizationId}
+                sources={sourceDocuments}
+              />
+              {false && sourceDocuments.length > 0 && (
                 <div className="rag-source-list">
-                  {sourceDocuments.map((source) => (
-                    <a
-                      className="rag-source-pill"
-                      href={getOrganizationDocumentContentUrl(
-                        organizationId,
-                        source.document_id,
-                      )}
-                      key={source.document_id}
-                      rel="noreferrer"
-                      title={source.document_name || source.original_filename}
-                      target="_blank"
-                    >
-                      {source.document_name ||
-                        source.original_filename ||
-                        'Document'}
-                    </a>
-                  ))}
+                  {sourceDocuments.map((source, index) => {
+                    const sourceDocumentId = getSourceDocumentId(source)
+                    const label = [
+                      getSourceDocumentName(source),
+                      getSourceLocationLabel(source),
+                    ].join(' — ')
+
+                    return (
+                      <a
+                        className="rag-source-pill"
+                        href={getOrganizationDocumentContentUrl(
+                          organizationId,
+                          sourceDocumentId,
+                        )}
+                        key={`${sourceDocumentId}-${getSourceLocationLabel(source)}-${index}`}
+                        rel="noreferrer"
+                        title={label}
+                        target="_blank"
+                      >
+                        {label}
+                      </a>
+                    )
+                  })}
                 </div>
               )}
             </article>
@@ -992,9 +2170,9 @@ export function DocumentRag() {
           <section className="card">
             <div className="section-heading">
               <div>
-                <span className="card__label">Files used</span>
+                <span className="card__label">Sources used</span>
                 <h2>
-                  {sourceDocuments.length} file
+                  {sourceDocuments.length} source
                   {sourceDocuments.length === 1 ? '' : 's'}
                 </h2>
               </div>
@@ -1008,7 +2186,7 @@ export function DocumentRag() {
                 {sourceDocuments.map(
                   (result) => (
                     <SourceDocumentCard
-                      key={result.document_id}
+                      key={`${getSourceDocumentId(result)}-${getSourceLocationLabel(result)}`}
                       organizationId={organizationId}
                       result={result}
                     />
@@ -1029,6 +2207,8 @@ export function DocumentRag() {
           </section>
         </section>
       )}
+        </div>
+      </section>
     </main>
   )
 }
