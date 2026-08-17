@@ -22,6 +22,7 @@ import {
   getOrganizationDocumentContentUrl,
   getOrganizationDocumentDownloadUrl,
   getPlatformDocumentContentUrl,
+  getPlatformDocumentPreview,
   getStagedFileContentUrl,
   getUploadJobEventsUrl,
   getZipManifest,
@@ -363,7 +364,7 @@ function isPdfMime(mimeType = '') {
   return mimeType === 'application/pdf'
 }
 
-function renderPreviewBody(preview, contentUrl, mimeType) {
+function renderPreviewBody(preview, contentUrl, mimeType, binaryState = {}) {
   if (!preview) {
     return (
       <section className="empty-state empty-state--compact">
@@ -376,6 +377,27 @@ function renderPreviewBody(preview, contentUrl, mimeType) {
   }
 
   if (preview.kind === 'binary' && preview.previewAvailable) {
+    if (binaryState.loading) {
+      return <Loader label="Loading preview..." />
+    }
+
+    if (binaryState.error) {
+      return (
+        <Alert tone="warning">
+          We could not load the inline preview. Open the file in a new tab or
+          download it to view it.
+        </Alert>
+      )
+    }
+
+    if (!contentUrl) {
+      return (
+        <Alert tone="warning">
+          Preview is not available right now. Try again in a moment.
+        </Alert>
+      )
+    }
+
     if (isImageMime(preview.mimeType || mimeType)) {
       return (
         <img
@@ -452,7 +474,76 @@ function renderPreviewBody(preview, contentUrl, mimeType) {
 }
 
 function DocumentPreviewModal({ item, onClose }) {
+  const [blobUrl, setBlobUrl] = useState('')
+  const [blobError, setBlobError] = useState(null)
+  const [blobLoading, setBlobLoading] = useState(false)
+
+  useEffect(() => {
+    if (
+      !item?.contentUrl ||
+      item.preview?.kind !== 'binary' ||
+      !item.preview?.previewAvailable
+    ) {
+      setBlobUrl('')
+      setBlobError(null)
+      setBlobLoading(false)
+      return undefined
+    }
+
+    let isActive = true
+    let objectUrl = ''
+    const controller = new AbortController()
+
+    async function loadBinaryPreview() {
+      setBlobLoading(true)
+      setBlobError(null)
+
+      try {
+        const response = await fetch(item.contentUrl, {
+          credentials: 'include',
+          signal: controller.signal,
+        })
+
+        if (!response.ok) {
+          throw new Error('Preview request failed.')
+        }
+
+        const blob = await response.blob()
+        objectUrl = URL.createObjectURL(blob)
+
+        if (isActive) {
+          setBlobUrl(objectUrl)
+        } else {
+          URL.revokeObjectURL(objectUrl)
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return
+        if (isActive) {
+          setBlobError(error)
+          setBlobUrl('')
+        }
+      } finally {
+        if (isActive) {
+          setBlobLoading(false)
+        }
+      }
+    }
+
+    void loadBinaryPreview()
+
+    return () => {
+      isActive = false
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [item?.contentUrl, item?.preview?.kind, item?.preview?.previewAvailable])
+
   if (!item) return null
+
+  const previewContentUrl =
+    item.preview?.kind === 'binary' && item.preview?.previewAvailable
+      ? blobUrl
+      : item.contentUrl
 
   return (
     <Modal isOpen={Boolean(item)} onClose={onClose} title={getPreviewTitle(item)}>
@@ -473,7 +564,10 @@ function DocumentPreviewModal({ item, onClose }) {
             </a>
           )}
         </div>
-        {renderPreviewBody(item.preview, item.contentUrl, item.mimeType)}
+        {renderPreviewBody(item.preview, previewContentUrl, item.mimeType, {
+          error: blobError,
+          loading: blobLoading,
+        })}
       </div>
     </Modal>
   )
@@ -726,6 +820,81 @@ function UploadSessionCard({
   )
 }
 
+function UploadLocationModal({
+  collectionId,
+  collections,
+  isLoading,
+  isOpen,
+  isSaving,
+  knowledgeBaseId,
+  knowledgeBases,
+  onChangeCollection,
+  onChangeKnowledgeBase,
+  onClose,
+  onSave,
+  stagedCount,
+}) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Choose where to save files">
+      <div className="upload-location-modal">
+        <p className="muted-copy">
+          {stagedCount} file{stagedCount === 1 ? '' : 's'} ready. Select a
+          Knowledge Base, and optionally a Collection, before saving.
+        </p>
+
+        <div className="upload-location-modal__grid">
+          <label className="field">
+            <span>Knowledge Base</span>
+            <select
+              disabled={isLoading || isSaving}
+              onChange={(event) => {
+                onChangeKnowledgeBase(event.target.value)
+                onChangeCollection('')
+              }}
+              value={knowledgeBaseId}
+            >
+              <option value="">
+                {isLoading ? 'Loading...' : 'Select Knowledge Base'}
+              </option>
+              {knowledgeBases.map((knowledgeBase) => (
+                <option key={knowledgeBase.id} value={knowledgeBase.id}>
+                  {knowledgeBase.name}
+                  {knowledgeBase.isDefault ? ' (default)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="field">
+            <span>Collection optional</span>
+            <select
+              disabled={!knowledgeBaseId || collections.length === 0 || isSaving}
+              onChange={(event) => onChangeCollection(event.target.value)}
+              value={collectionId}
+            >
+              <option value="">No collection</option>
+              {collections.map((collection) => (
+                <option key={collection.id} value={collection.id}>
+                  {collection.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="form-actions">
+          <Button disabled={isSaving} onClick={onClose} variant="secondary">
+            Review files
+          </Button>
+          <Button disabled={isSaving} onClick={onSave}>
+            {isSaving ? 'Saving...' : 'Save documents'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 function UploadJobProgressCard({ job, onDismiss }) {
   if (!job) return null
 
@@ -881,6 +1050,7 @@ export function Documents({ scope = 'organization' }) {
   const [zipSelectedPaths, setZipSelectedPaths] = useState([])
   const [uploadKnowledgeBaseId, setUploadKnowledgeBaseId] = useState('')
   const [uploadCollectionId, setUploadCollectionId] = useState('')
+  const [isUploadLocationModalOpen, setIsUploadLocationModalOpen] = useState(false)
 
   const supportedFileTypes = useMemo(
     () => ALLOWED_EXTENSIONS.map((extension) => extension.toUpperCase()).join(', '),
@@ -1231,6 +1401,7 @@ export function Documents({ scope = 'organization' }) {
       const visibleSession = normalizeUploadSession(session)
       setUploadSession(visibleSession)
       setUploadJob(null)
+      setIsUploadLocationModalOpen(Boolean(visibleSession?.files?.length))
       notifications.success(
         `${visibleSession?.files.length ?? 0} file(s) ready for review.`,
       )
@@ -1262,6 +1433,7 @@ export function Documents({ scope = 'organization' }) {
       const visibleSession = normalizeUploadSession(session)
       setUploadSession(visibleSession)
       setUploadJob(null)
+      setIsUploadLocationModalOpen(Boolean(visibleSession?.files?.length))
       setZipReview(null)
       setZipSelectedPaths([])
       notifications.success(`${visibleSession?.files.length ?? 0} ZIP file(s) ready for review.`)
@@ -1290,7 +1462,11 @@ export function Documents({ scope = 'organization' }) {
         uploadSession.id,
         file.id,
       )
-      setUploadSession(normalizeUploadSession(session))
+      const nextSession = normalizeUploadSession(session)
+      setUploadSession(nextSession)
+      if (!nextSession) {
+        setIsUploadLocationModalOpen(false)
+      }
       setPreviewTarget((current) => (current?.id === file.id ? null : current))
       notifications.info(`${file.originalFilename} was removed.`)
     } catch (requestError) {
@@ -1323,6 +1499,7 @@ export function Documents({ scope = 'organization' }) {
         collectionIds: uploadCollectionId ? [uploadCollectionId] : undefined,
       })
       setUploadJob(job)
+      setIsUploadLocationModalOpen(false)
       notifications.info('Saving started. Progress will update automatically.')
     } catch (requestError) {
       setError(requestError)
@@ -1339,9 +1516,9 @@ export function Documents({ scope = 'organization' }) {
 
   async function openDocumentPreview(document) {
     try {
-      const preview = !isPlatform
-        ? await getDocumentPreview(organizationId, document.id)
-        : document.latestVersion?.preview ?? null
+      const preview = isPlatform
+        ? await getPlatformDocumentPreview(document.id)
+        : await getDocumentPreview(organizationId, document.id)
 
       setPreviewTarget({
         ...document,
@@ -1573,60 +1750,6 @@ export function Documents({ scope = 'organization' }) {
 
       {canUploadDocuments && (
         <>
-          <section className="card upload-scope-card">
-            <div className="section-heading">
-              <div>
-                <span className="card__label">Save location</span>
-                <h2>Knowledge Base</h2>
-                <p>
-                  Choose where these documents should live. Collections are optional.
-                </p>
-              </div>
-            </div>
-            <div className="upload-scope-grid">
-              <label className="field">
-                <span>Knowledge Base *</span>
-                <select
-                  disabled={knowledgeBaseLoading || uploadJobActive}
-                  onChange={(event) => {
-                    setUploadKnowledgeBaseId(event.target.value)
-                    setUploadCollectionId('')
-                  }}
-                  value={uploadKnowledgeBaseId}
-                >
-                  <option value="">
-                    {knowledgeBaseLoading ? 'Loading...' : 'Select Knowledge Base'}
-                  </option>
-                  {knowledgeBases.map((knowledgeBase) => (
-                    <option key={knowledgeBase.id} value={knowledgeBase.id}>
-                      {knowledgeBase.name}
-                      {knowledgeBase.isDefault ? ' (default)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                <span>Collection</span>
-                <select
-                  disabled={
-                    !uploadKnowledgeBaseId ||
-                    knowledgeBaseCollections.length === 0 ||
-                    uploadJobActive
-                  }
-                  onChange={(event) => setUploadCollectionId(event.target.value)}
-                  value={uploadCollectionId}
-                >
-                  <option value="">No collection</option>
-                  {knowledgeBaseCollections.map((collection) => (
-                    <option key={collection.id} value={collection.id}>
-                      {collection.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </section>
-
           <section
             className={`document-dropzone ${isDragging ? 'document-dropzone--active' : ''}`}
             onClick={() => fileInputRef.current?.click()}
@@ -1715,6 +1838,21 @@ export function Documents({ scope = 'organization' }) {
         onRemoveFile={(file) => void handleRemoveStagedFile(file)}
         session={uploadSession}
         uploadJob={uploadJob}
+      />
+
+      <UploadLocationModal
+        collectionId={uploadCollectionId}
+        collections={knowledgeBaseCollections}
+        isLoading={knowledgeBaseLoading}
+        isOpen={isUploadLocationModalOpen && Boolean(uploadSession) && !uploadJobActive}
+        isSaving={isSaving}
+        knowledgeBaseId={uploadKnowledgeBaseId}
+        knowledgeBases={knowledgeBases}
+        onChangeCollection={setUploadCollectionId}
+        onChangeKnowledgeBase={setUploadKnowledgeBaseId}
+        onClose={() => setIsUploadLocationModalOpen(false)}
+        onSave={() => void handleCommitUpload()}
+        stagedCount={getVisibleStagedFiles(uploadSession).length}
       />
 
       <UploadJobProgressCard

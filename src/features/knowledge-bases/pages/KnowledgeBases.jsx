@@ -8,13 +8,16 @@ import { ListPagination } from '../../../shared/components/ListPagination.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
 import { useNotifications } from '../../../shared/useNotifications.js'
 import {
+  addDocumentsToCollection,
   createKnowledgeBase,
+  deleteKnowledgeBase,
   getKnowledgeBase,
   listKnowledgeBaseCategories,
   listKnowledgeBaseCollections,
   listKnowledgeBaseFolders,
   listKnowledgeBases,
   listKnowledgeBaseTags,
+  removeDocumentFromCollection,
 } from '../services/knowledgeBasesApi.js'
 
 const DETAIL_TABS = ['overview', 'documents', 'collections', 'tags']
@@ -135,7 +138,7 @@ function FileTypeBadge({ extension }) {
   )
 }
 
-function DocumentRow({ document }) {
+function DocumentRow({ action, document }) {
   const collectionNames = getCollectionNames(document)
 
   return (
@@ -161,6 +164,7 @@ function DocumentRow({ document }) {
         {getStatusLabel(document.status)}
       </span>
       <span className="kb-document-row__meta">{formatDate(document.updatedAt)}</span>
+      {action && <span className="kb-document-row__actions">{action}</span>}
     </article>
   )
 }
@@ -198,6 +202,8 @@ export function KnowledgeBases() {
   const [folders, setFolders] = useState([])
   const [form, setForm] = useState({ description: '', name: '' })
   const [isCreating, setIsCreating] = useState(false)
+  const [isCollectionSaving, setIsCollectionSaving] = useState(false)
+  const [isDeletingKnowledgeBase, setIsDeletingKnowledgeBase] = useState(false)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [kbPage, setKbPage] = useState(1)
@@ -206,10 +212,16 @@ export function KnowledgeBases() {
   const [pagination, setPagination] = useState(null)
   const [search, setSearch] = useState('')
   const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState(null)
+  const [selectedCollectionId, setSelectedCollectionId] = useState('')
+  const [selectedCollectionDocumentIds, setSelectedCollectionDocumentIds] =
+    useState([])
   const [showCreate, setShowCreate] = useState(false)
   const [tags, setTags] = useState([])
 
   const selectedKnowledgeBaseId = selectedKnowledgeBase?.id ?? ''
+  const selectedCollection = collections.find(
+    (collection) => collection.id === selectedCollectionId,
+  )
 
   const loadKnowledgeBases = useCallback(async () => {
     if (!organizationId || !canReadDocuments) {
@@ -312,6 +324,16 @@ export function KnowledgeBases() {
     [categories],
   )
 
+  useEffect(() => {
+    if (
+      selectedCollectionId &&
+      !collections.some((collection) => collection.id === selectedCollectionId)
+    ) {
+      setSelectedCollectionId('')
+      setSelectedCollectionDocumentIds([])
+    }
+  }, [collections, selectedCollectionId])
+
   async function handleCreateKnowledgeBase(event) {
     event.preventDefault()
 
@@ -346,10 +368,124 @@ export function KnowledgeBases() {
     }
   }
 
+  async function handleDeleteEmptyKnowledgeBase() {
+    if (!selectedKnowledgeBase || isDeletingKnowledgeBase) return
+
+    const totalDocuments =
+      selectedKnowledgeBase.counts?.documents ?? documentPagination?.total ?? documents.length
+
+    if (selectedKnowledgeBase.isDefault) {
+      notifications.info('The default Knowledge Base cannot be deleted.')
+      return
+    }
+
+    if (totalDocuments > 0) {
+      notifications.info('Move or remove all documents before deleting this Knowledge Base.')
+      return
+    }
+
+    setIsDeletingKnowledgeBase(true)
+    setError(null)
+
+    try {
+      await deleteKnowledgeBase(organizationId, selectedKnowledgeBase.id)
+      notifications.success('Empty Knowledge Base deleted.')
+      backToLibrary()
+      void loadKnowledgeBases()
+    } catch (requestError) {
+      setError(requestError)
+      notifications.error(
+        getFriendlyError(
+          requestError,
+          'We could not delete this Knowledge Base. Please try again.',
+        ),
+      )
+    } finally {
+      setIsDeletingKnowledgeBase(false)
+    }
+  }
+
+  function toggleCollectionDocument(documentId) {
+    setSelectedCollectionDocumentIds((current) =>
+      current.includes(documentId)
+        ? current.filter((id) => id !== documentId)
+        : [...current, documentId],
+    )
+  }
+
+  async function handleAddDocumentsToCollection() {
+    if (!selectedKnowledgeBase || !selectedCollection) return
+
+    if (selectedCollectionDocumentIds.length === 0) {
+      notifications.info('Select at least one document to add.')
+      return
+    }
+
+    setIsCollectionSaving(true)
+    setError(null)
+
+    try {
+      const result = await addDocumentsToCollection(
+        organizationId,
+        selectedKnowledgeBase.id,
+        selectedCollection.id,
+        selectedCollectionDocumentIds,
+      )
+
+      notifications.success(
+        result.added > 0
+          ? `${result.added} document${result.added === 1 ? '' : 's'} added to ${selectedCollection.name}.`
+          : 'Selected documents are already in this Collection.',
+      )
+      setSelectedCollectionDocumentIds([])
+      await loadKnowledgeBaseDetail(selectedKnowledgeBase.id)
+    } catch (requestError) {
+      setError(requestError)
+      notifications.error(
+        getFriendlyError(
+          requestError,
+          'We could not add documents to this Collection. Please try again.',
+        ),
+      )
+    } finally {
+      setIsCollectionSaving(false)
+    }
+  }
+
+  async function handleRemoveDocumentFromCollection(collectionId, documentId) {
+    if (!selectedKnowledgeBase || isCollectionSaving) return
+
+    setIsCollectionSaving(true)
+    setError(null)
+
+    try {
+      await removeDocumentFromCollection(
+        organizationId,
+        selectedKnowledgeBase.id,
+        collectionId,
+        documentId,
+      )
+      notifications.success('Document removed from Collection.')
+      await loadKnowledgeBaseDetail(selectedKnowledgeBase.id)
+    } catch (requestError) {
+      setError(requestError)
+      notifications.error(
+        getFriendlyError(
+          requestError,
+          'We could not remove this document from the Collection. Please try again.',
+        ),
+      )
+    } finally {
+      setIsCollectionSaving(false)
+    }
+  }
+
   function openKnowledgeBase(knowledgeBase) {
     setSelectedKnowledgeBase(knowledgeBase)
     setActiveTab('overview')
     setDocumentPage(1)
+    setSelectedCollectionId('')
+    setSelectedCollectionDocumentIds([])
   }
 
   function backToLibrary() {
@@ -362,6 +498,8 @@ export function KnowledgeBases() {
     setDocumentPage(1)
     setTags([])
     setCategories([])
+    setSelectedCollectionId('')
+    setSelectedCollectionDocumentIds([])
   }
 
   if (!organizationId) {
@@ -405,6 +543,18 @@ export function KnowledgeBases() {
           <span className={`status-badge status-badge--${getStatusTone(selectedKnowledgeBase.status)}`}>
             {getStatusLabel(selectedKnowledgeBase.status)}
           </span>
+          {canManageKnowledgeBases &&
+            !selectedKnowledgeBase.isDefault &&
+            totalDocuments === 0 && (
+              <button
+                className="button button--danger button--compact kb-detail-delete"
+                disabled={isDeletingKnowledgeBase}
+                onClick={handleDeleteEmptyKnowledgeBase}
+                type="button"
+              >
+                {isDeletingKnowledgeBase ? 'Deleting…' : 'Delete empty Knowledge Base'}
+              </button>
+            )}
         </header>
 
         {error && (
@@ -556,11 +706,112 @@ export function KnowledgeBases() {
                         </p>
                         <footer>
                           <small>{collection.counts?.documents ?? 0} documents</small>
-                          <button type="button">Open →</button>
+                          <button
+                            onClick={() => {
+                              setSelectedCollectionId(collection.id)
+                              setSelectedCollectionDocumentIds([])
+                            }}
+                            type="button"
+                          >
+                            Manage →
+                          </button>
                         </footer>
                       </article>
                     ))}
                   </div>
+                )}
+                {selectedCollection && (
+                  <section className="card kb-collection-manager">
+                    <div className="kb-panel-card__header">
+                      <div>
+                        <p className="eyebrow">Collection</p>
+                        <h2>{selectedCollection.name}</h2>
+                        <p className="kb-muted">
+                          Add documents from this Knowledge Base or remove documents
+                          already grouped here.
+                        </p>
+                      </div>
+                      <button
+                        className="button button--secondary button--compact"
+                        onClick={() => {
+                          setSelectedCollectionId('')
+                          setSelectedCollectionDocumentIds([])
+                        }}
+                        type="button"
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    {documents.length === 0 ? (
+                      <p className="kb-muted kb-panel-empty">
+                        Add documents to this Knowledge Base before managing Collections.
+                      </p>
+                    ) : (
+                      <div className="kb-document-table kb-document-table--actions">
+                        <div className="kb-document-table__head" aria-hidden="true">
+                          <span>Document</span>
+                          <span>Collection</span>
+                          <span>Uploaded by</span>
+                          <span>Size</span>
+                          <span>Status</span>
+                          <span>Updated</span>
+                          <span>Action</span>
+                        </div>
+                        {documents.map((document) => {
+                          const isInCollection = document.collections?.some(
+                            (collection) => collection.id === selectedCollection.id,
+                          )
+
+                          return (
+                            <DocumentRow
+                              action={
+                                isInCollection ? (
+                                  <button
+                                    className="button button--secondary button--compact"
+                                    disabled={isCollectionSaving}
+                                    onClick={() =>
+                                      handleRemoveDocumentFromCollection(
+                                        selectedCollection.id,
+                                        document.id,
+                                      )
+                                    }
+                                    type="button"
+                                  >
+                                    Remove
+                                  </button>
+                                ) : (
+                                  <label className="kb-inline-check">
+                                    <input
+                                      checked={selectedCollectionDocumentIds.includes(document.id)}
+                                      disabled={isCollectionSaving}
+                                      onChange={() => toggleCollectionDocument(document.id)}
+                                      type="checkbox"
+                                    />
+                                    Add
+                                  </label>
+                                )
+                              }
+                              document={document}
+                              key={document.id}
+                            />
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    <div className="kb-detail-actions">
+                      <Button
+                        disabled={
+                          isCollectionSaving ||
+                          selectedCollectionDocumentIds.length === 0
+                        }
+                        onClick={handleAddDocumentsToCollection}
+                      >
+                        {isCollectionSaving ? 'Saving…' : 'Add selected documents'}
+                      </Button>
+                    </div>
+                  </section>
                 )}
               </section>
             ) : (

@@ -112,3 +112,56 @@ export async function createKnowledgeBaseCollection(
 
   return getResponseData(response).collection
 }
+
+export async function deleteKnowledgeBase(organizationId, knowledgeBaseId) {
+  const response = await csrfRequest(
+    knowledgeBasePath(organizationId, `/${encode(knowledgeBaseId)}`),
+    {
+      method: 'DELETE',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).knowledgeBase
+}
+
+export async function addDocumentsToCollection(
+  organizationId,
+  knowledgeBaseId,
+  collectionId,
+  documentIds,
+) {
+  const response = await csrfRequest(
+    knowledgeBasePath(
+      organizationId,
+      `/${encode(knowledgeBaseId)}/collections/${encode(collectionId)}/documents`,
+    ),
+    {
+      body: { documentIds },
+      method: 'POST',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response)
+}
+
+export async function removeDocumentFromCollection(
+  organizationId,
+  knowledgeBaseId,
+  collectionId,
+  documentId,
+) {
+  const response = await csrfRequest(
+    knowledgeBasePath(
+      organizationId,
+      `/${encode(knowledgeBaseId)}/collections/${encode(collectionId)}/documents/${encode(documentId)}`,
+    ),
+    {
+      method: 'DELETE',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response)
+}

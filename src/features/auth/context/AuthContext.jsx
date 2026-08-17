@@ -85,6 +85,12 @@ export function AuthProvider({ children }) {
     [applyAuthentication],
   )
 
+  const refreshAuthentication = useCallback(async () => {
+    const data = await getCurrentAuthentication()
+    applyAuthentication(data)
+    return data
+  }, [applyAuthentication])
+
   const signOut = useCallback(async () => {
     await logoutCurrentSession()
     clearAuthentication()
@@ -100,6 +106,7 @@ export function AuthProvider({ children }) {
       clearAuthentication,
       isAuthenticated: status === 'authenticated',
       session,
+      refreshAuthentication,
       signIn,
       signOut,
       signOutAll,
@@ -108,6 +115,7 @@ export function AuthProvider({ children }) {
     }),
     [
       clearAuthentication,
+      refreshAuthentication,
       session,
       signIn,
       signOut,
