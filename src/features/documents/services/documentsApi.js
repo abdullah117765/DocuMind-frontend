@@ -221,10 +221,11 @@ export async function removeStagedDocumentFile(organizationId, sessionId, fileId
   return getResponseData(response).uploadSession
 }
 
-export async function commitUploadSession(organizationId, sessionId) {
+export async function commitUploadSession(organizationId, sessionId, payload = {}) {
   const response = await csrfRequest(
     organizationDocumentPath(organizationId, `/stage/${encode(sessionId)}/commit`),
     {
+      body: payload,
       method: 'POST',
       requiresAuth: true,
     },

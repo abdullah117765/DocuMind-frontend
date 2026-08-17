@@ -105,6 +105,12 @@ function Icon({ className = '', name, size = 18 }) {
           <path d="M16 17l5-5-5-5M21 12H9" {...commonProps} />
         </>
       )}
+      {name === 'panel' && (
+        <>
+          <rect height="14" rx="2" {...commonProps} width="18" x="3" y="5" />
+          <path d="M3 9h18M8 9v10" {...commonProps} />
+        </>
+      )}
       {name === 'chevron' && <path d="m9 18 6-6-6-6" {...commonProps} />}
     </svg>
   )
@@ -132,7 +138,7 @@ export function AuthenticatedLayout({ children }) {
   } = useAccessControl()
   const { signOut, user } = useAuth()
   const notifications = useNotifications()
-  const { theme, toggleTheme } = useTheme()
+  const { navLayout, theme, toggleNavLayout, toggleTheme } = useTheme()
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [isSigningOut, setIsSigningOut] = useState(false)
   const navigate = useNavigate()
@@ -201,6 +207,10 @@ export function AuthenticatedLayout({ children }) {
           label: 'Ask Documents',
           to: '/documents/search',
         },
+        canReadDocuments && {
+          label: 'Knowledge Bases',
+          to: '/knowledge-bases',
+        },
         shouldShowOrganizationPeople && {
           label: canManageMembers ? 'People' : 'Team',
           to: '/organization/members',
@@ -236,10 +246,66 @@ export function AuthenticatedLayout({ children }) {
   )
     ? location.pathname
     : ''
+  const isTopbarLayout = navLayout === 'topbar'
+
+  function renderProfileMenu(placement = 'sidebar') {
+    return (
+      <div className={`profile-menu profile-menu--${placement}`}>
+        <button
+          aria-expanded={isProfileOpen}
+          className="profile-button"
+          onClick={() => setIsProfileOpen((current) => !current)}
+          type="button"
+        >
+          <span className="profile-avatar">{getInitialsFromUser(user)}</span>
+          <span>
+            <strong>{displayName}</strong>
+            {currentRoleName && <small>{currentRoleName}</small>}
+          </span>
+        </button>
+
+        {isProfileOpen && (
+          <div className="profile-popover">
+            <div className="profile-popover__header">
+              <span className="profile-avatar profile-avatar--large">
+                {getInitialsFromUser(user)}
+              </span>
+              <div>
+                <strong>{displayName}</strong>
+                <small>{currentRoleName}</small>
+                {user?.email && <p>{user.email}</p>}
+              </div>
+            </div>
+            <Link
+              onClick={() => setIsProfileOpen(false)}
+              to="/account/profile"
+            >
+              View profile
+            </Link>
+            <Link
+              onClick={() => setIsProfileOpen(false)}
+              to="/account/sessions"
+            >
+              Active devices
+            </Link>
+            <Button
+              className="profile-popover__signout"
+              disabled={isSigningOut}
+              onClick={handleSignOut}
+              variant="secondary"
+            >
+              {isSigningOut ? 'Signing out...' : 'Sign out'}
+            </Button>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
-    <div className="app-shell">
-      <aside className="app-sidebar">
+    <div className={`app-shell app-shell--${navLayout}`}>
+      {!isTopbarLayout && (
+        <aside className="app-sidebar">
         <div className="sidebar-brand">
           <Link className="brand" to="/dashboard">
             <span aria-hidden="true" className="brand__mark">
@@ -252,11 +318,6 @@ export function AuthenticatedLayout({ children }) {
         {shouldShowSidebarOrganizationSwitcher && (
           <section className="sidebar-workspace-panel" aria-label="Workspace">
             <OrganizationSwitcher />
-            {currentRoleName && (
-              <div className="sidebar-workspace-meta">
-                <span className="sidebar-role-badge">{currentRoleName}</span>
-              </div>
-            )}
           </section>
         )}
 
@@ -275,6 +336,11 @@ export function AuthenticatedLayout({ children }) {
               {canReadDocuments && (
                 <NavItem icon="search" to="/documents/search">
                   Ask Documents
+                </NavItem>
+              )}
+              {canReadDocuments && (
+                <NavItem icon="file" to="/knowledge-bases">
+                  Knowledge Bases
                 </NavItem>
               )}
               {shouldShowOrganizationPeople && (
@@ -346,52 +412,7 @@ export function AuthenticatedLayout({ children }) {
         </label>
 
         <footer className="sidebar-account-panel">
-          <div className="profile-menu profile-menu--sidebar">
-            <button
-              aria-expanded={isProfileOpen}
-              className="profile-button"
-              onClick={() => setIsProfileOpen((current) => !current)}
-              type="button"
-            >
-              <span className="profile-avatar">{getInitialsFromUser(user)}</span>
-              <span>
-                <strong>{displayName}</strong>
-              </span>
-            </button>
-
-            {isProfileOpen && (
-              <div className="profile-popover">
-                <div className="profile-popover__header">
-                  <span className="profile-avatar profile-avatar--large">
-                    {getInitialsFromUser(user)}
-                  </span>
-                  <div>
-                    <strong>{displayName}</strong>
-                  </div>
-                </div>
-                <Link
-                  onClick={() => setIsProfileOpen(false)}
-                  to="/account/profile"
-                >
-                  View profile
-                </Link>
-                <Link
-                  onClick={() => setIsProfileOpen(false)}
-                  to="/account/sessions"
-                >
-                  Active devices
-                </Link>
-                <Button
-                  className="profile-popover__signout"
-                  disabled={isSigningOut}
-                  onClick={handleSignOut}
-                  variant="secondary"
-                >
-                  {isSigningOut ? 'Signing out...' : 'Sign out'}
-                </Button>
-              </div>
-            )}
-          </div>
+          {renderProfileMenu('sidebar')}
 
           <div className="sidebar-account-actions">
             <button
@@ -400,7 +421,15 @@ export function AuthenticatedLayout({ children }) {
               type="button"
             >
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={14} />
-              <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+              <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+            </button>
+            <button
+              className="sidebar-action"
+              onClick={toggleNavLayout}
+              type="button"
+            >
+              <Icon name="panel" size={14} />
+              <span>Top bar</span>
             </button>
             <button
               className="sidebar-action sidebar-action--icon"
@@ -414,8 +443,48 @@ export function AuthenticatedLayout({ children }) {
           </div>
         </footer>
       </aside>
+      )}
 
       <div className="app-main">
+        {isTopbarLayout && (
+          <header className="app-topbar app-horizontal-bar">
+            <Link className="brand" to="/dashboard">
+              <span aria-hidden="true" className="brand__mark">
+                <Icon name="file" size={16} />
+              </span>
+              <span>DOCUMIND</span>
+            </Link>
+
+            <nav aria-label="Primary navigation" className="app-nav">
+              {navigationItems.map((item) => (
+                <NavLink key={item.to} to={item.to}>
+                  {item.label}
+                </NavLink>
+              ))}
+            </nav>
+
+            <div className="topbar-actions">
+              {shouldShowSidebarOrganizationSwitcher && <OrganizationSwitcher />}
+              <button
+                className="sidebar-action"
+                onClick={toggleTheme}
+                type="button"
+              >
+                <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={14} />
+                <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+              </button>
+              <button
+                className="sidebar-action"
+                onClick={toggleNavLayout}
+                type="button"
+              >
+                <Icon name="panel" size={14} />
+                <span>Sidebar</span>
+              </button>
+              {renderProfileMenu('topbar')}
+            </div>
+          </header>
+        )}
         <div className="app-content">{children}</div>
       </div>
     </div>

@@ -11,6 +11,10 @@ import { emitNetworkError } from '../../../shared/networkEvents.js'
 import { useAccessControl } from '../../access-control/hooks/useAccessControl.js'
 import { useAuth } from '../../auth/hooks/useAuth.js'
 import {
+  listKnowledgeBaseCollections,
+  listKnowledgeBases,
+} from '../../knowledge-bases/services/knowledgeBasesApi.js'
+import {
   commitUploadSession,
   deleteOrganizationDocument,
   getDocumentPreview,
@@ -859,6 +863,10 @@ export function Documents({ scope = 'organization' }) {
   const [isDragging, setIsDragging] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [knowledgeBases, setKnowledgeBases] = useState([])
+  const [knowledgeBaseCollections, setKnowledgeBaseCollections] = useState([])
+  const [knowledgeBaseError, setKnowledgeBaseError] = useState(null)
+  const [knowledgeBaseLoading, setKnowledgeBaseLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_DOCUMENT_PAGE_SIZE)
   const [pagination, setPagination] = useState(null)
@@ -871,6 +879,8 @@ export function Documents({ scope = 'organization' }) {
   const [versionsLoading, setVersionsLoading] = useState(false)
   const [zipReview, setZipReview] = useState(null)
   const [zipSelectedPaths, setZipSelectedPaths] = useState([])
+  const [uploadKnowledgeBaseId, setUploadKnowledgeBaseId] = useState('')
+  const [uploadCollectionId, setUploadCollectionId] = useState('')
 
   const supportedFileTypes = useMemo(
     () => ALLOWED_EXTENSIONS.map((extension) => extension.toUpperCase()).join(', '),
@@ -958,6 +968,82 @@ export function Documents({ scope = 'organization' }) {
 
     return () => window.clearTimeout(handle)
   }, [loadDocuments])
+
+  useEffect(() => {
+    let active = true
+
+    if (!organizationId || isPlatform || !canUploadDocuments) {
+      setKnowledgeBases([])
+      setKnowledgeBaseCollections([])
+      setUploadKnowledgeBaseId('')
+      setUploadCollectionId('')
+      setKnowledgeBaseLoading(false)
+      return undefined
+    }
+
+    setKnowledgeBaseLoading(true)
+    setKnowledgeBaseError(null)
+
+    listKnowledgeBases(organizationId, { page: 1, pageSize: 100 })
+      .then((data) => {
+        if (!active) return
+
+        const nextKnowledgeBases = data.knowledgeBases ?? []
+        setKnowledgeBases(nextKnowledgeBases)
+        setUploadKnowledgeBaseId((current) => {
+          if (current && nextKnowledgeBases.some((kb) => kb.id === current)) {
+            return current
+          }
+
+          return (
+            nextKnowledgeBases.find((kb) => kb.isDefault)?.id ??
+            nextKnowledgeBases[0]?.id ??
+            ''
+          )
+        })
+      })
+      .catch((requestError) => {
+        if (!active) return
+        setKnowledgeBaseError(requestError)
+      })
+      .finally(() => {
+        if (active) setKnowledgeBaseLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [canUploadDocuments, isPlatform, organizationId])
+
+  useEffect(() => {
+    let active = true
+
+    if (!organizationId || !uploadKnowledgeBaseId || isPlatform) {
+      setKnowledgeBaseCollections([])
+      setUploadCollectionId('')
+      return undefined
+    }
+
+    listKnowledgeBaseCollections(organizationId, uploadKnowledgeBaseId)
+      .then((collections) => {
+        if (!active) return
+        setKnowledgeBaseCollections(collections)
+        setUploadCollectionId((current) =>
+          current && collections.some((collection) => collection.id === current)
+            ? current
+            : '',
+        )
+      })
+      .catch(() => {
+        if (!active) return
+        setKnowledgeBaseCollections([])
+        setUploadCollectionId('')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [isPlatform, organizationId, uploadKnowledgeBaseId])
 
   useEffect(() => {
     const jobId = uploadJob?.id
@@ -1223,11 +1309,19 @@ export function Documents({ scope = 'organization' }) {
   async function handleCommitUpload() {
     if (!uploadSession) return
 
+    if (knowledgeBases.length > 0 && !uploadKnowledgeBaseId) {
+      notifications.error('Select a Knowledge Base before saving documents.')
+      return
+    }
+
     setIsSaving(true)
     setError(null)
 
     try {
-      const job = await commitUploadSession(organizationId, uploadSession.id)
+      const job = await commitUploadSession(organizationId, uploadSession.id, {
+        knowledgeBaseIds: uploadKnowledgeBaseId ? [uploadKnowledgeBaseId] : undefined,
+        collectionIds: uploadCollectionId ? [uploadCollectionId] : undefined,
+      })
       setUploadJob(job)
       notifications.info('Saving started. Progress will update automatically.')
     } catch (requestError) {
@@ -1466,58 +1560,124 @@ export function Documents({ scope = 'organization' }) {
           {uploadErrors.join(' ')}
         </Alert>
       )}
+      {knowledgeBaseError && canUploadDocuments && (
+        <Alert
+          autoDismissMs={6500}
+          onDismiss={() => setKnowledgeBaseError(null)}
+          tone="warning"
+        >
+          Knowledge Base options could not be loaded. Documents will be saved to
+          the default Knowledge Base.
+        </Alert>
+      )}
 
       {canUploadDocuments && (
-        <section
-          className={`document-dropzone ${isDragging ? 'document-dropzone--active' : ''}`}
-          onClick={() => fileInputRef.current?.click()}
-          onDragLeave={() => setIsDragging(false)}
-          onDragOver={(event) => {
-            event.preventDefault()
-            setIsDragging(true)
-          }}
-          onDrop={(event) => {
-            event.preventDefault()
-            setIsDragging(false)
-            void processSelectedFiles(event.dataTransfer.files)
-          }}
-          role="button"
-          tabIndex={0}
-        >
-          <input
-            accept={ACCEPTED_FILE_TYPES}
-            className="visually-hidden"
-            multiple
-            onChange={(event) => {
-              void processSelectedFiles(event.target.files)
-              event.target.value = ''
-            }}
-            ref={fileInputRef}
-            type="file"
-          />
-          <div className="file-icon file-icon--large" aria-hidden="true">
-            <DocumentUiIcon name="upload" size={26} />
-          </div>
-          <div className="document-dropzone__copy">
-            <div className="document-dropzone__title">
-              <h2>Drop files or browse</h2>
-              <span
-                aria-label={`Supported: ${supportedFileTypes}. 10 MB per file. Maximum ${MAX_FILES_PER_BATCH} files at a time. ZIP files are reviewed before saving.`}
-                className="info-tooltip"
-                role="img"
-                tabIndex={0}
-              >
-                i
-                <span className="info-tooltip__content" role="tooltip">
-                  Supported: {supportedFileTypes}. 10 MB per file. Max{' '}
-                  {MAX_FILES_PER_BATCH} files at a time. ZIP files are reviewed
-                  before saving.
-                </span>
-              </span>
+        <>
+          <section className="card upload-scope-card">
+            <div className="section-heading">
+              <div>
+                <span className="card__label">Save location</span>
+                <h2>Knowledge Base</h2>
+                <p>
+                  Choose where these documents should live. Collections are optional.
+                </p>
+              </div>
             </div>
-            <p>Choose files, preview them, then save when everything looks right.</p>
-          </div>
-        </section>
+            <div className="upload-scope-grid">
+              <label className="field">
+                <span>Knowledge Base *</span>
+                <select
+                  disabled={knowledgeBaseLoading || uploadJobActive}
+                  onChange={(event) => {
+                    setUploadKnowledgeBaseId(event.target.value)
+                    setUploadCollectionId('')
+                  }}
+                  value={uploadKnowledgeBaseId}
+                >
+                  <option value="">
+                    {knowledgeBaseLoading ? 'Loading...' : 'Select Knowledge Base'}
+                  </option>
+                  {knowledgeBases.map((knowledgeBase) => (
+                    <option key={knowledgeBase.id} value={knowledgeBase.id}>
+                      {knowledgeBase.name}
+                      {knowledgeBase.isDefault ? ' (default)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Collection</span>
+                <select
+                  disabled={
+                    !uploadKnowledgeBaseId ||
+                    knowledgeBaseCollections.length === 0 ||
+                    uploadJobActive
+                  }
+                  onChange={(event) => setUploadCollectionId(event.target.value)}
+                  value={uploadCollectionId}
+                >
+                  <option value="">No collection</option>
+                  {knowledgeBaseCollections.map((collection) => (
+                    <option key={collection.id} value={collection.id}>
+                      {collection.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section
+            className={`document-dropzone ${isDragging ? 'document-dropzone--active' : ''}`}
+            onClick={() => fileInputRef.current?.click()}
+            onDragLeave={() => setIsDragging(false)}
+            onDragOver={(event) => {
+              event.preventDefault()
+              setIsDragging(true)
+            }}
+            onDrop={(event) => {
+              event.preventDefault()
+              setIsDragging(false)
+              void processSelectedFiles(event.dataTransfer.files)
+            }}
+            role="button"
+            tabIndex={0}
+          >
+            <input
+              accept={ACCEPTED_FILE_TYPES}
+              className="visually-hidden"
+              multiple
+              onChange={(event) => {
+                void processSelectedFiles(event.target.files)
+                event.target.value = ''
+              }}
+              ref={fileInputRef}
+              type="file"
+            />
+            <div className="file-icon file-icon--large" aria-hidden="true">
+              <DocumentUiIcon name="upload" size={26} />
+            </div>
+            <div className="document-dropzone__copy">
+              <div className="document-dropzone__title">
+                <h2>Drop files or browse</h2>
+                <span
+                  aria-label={`Supported: ${supportedFileTypes}. 10 MB per file. Maximum ${MAX_FILES_PER_BATCH} files at a time. ZIP files are reviewed before saving.`}
+                  className="info-tooltip"
+                  role="img"
+                  tabIndex={0}
+                >
+                  i
+                  <span className="info-tooltip__content" role="tooltip">
+                    Supported: {supportedFileTypes}. 10 MB per file. Max{' '}
+                    {MAX_FILES_PER_BATCH} files at a time. ZIP files are reviewed
+                    before saving.
+                  </span>
+                </span>
+              </div>
+              <p>Choose files, preview them, then save when everything looks right.</p>
+            </div>
+          </section>
+        </>
       )}
 
       {!isPlatform && !canUploadDocuments && (
