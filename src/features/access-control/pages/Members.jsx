@@ -828,9 +828,6 @@ function OrganizationPeopleAccess() {
     <main className="page page--wide page--people-access">
       <header className="page-header">
         <div>
-          <p className="eyebrow">
-            {canManageMembers ? 'Access management' : 'Team visibility'}
-          </p>
           <h1>{canManageMembers ? 'People access' : 'My team'}</h1>
           <p>
             {canManageMembers
@@ -861,82 +858,62 @@ function OrganizationPeopleAccess() {
         </Alert>
       )}
 
-      <section className="metric-grid metric-grid--compact">
-        <article>
-          <span>Total records</span>
-          <strong>{summary.total}</strong>
-        </article>
-        <article>
-          <span>Members</span>
-          <strong>{summary.members}</strong>
-        </article>
-        <article>
-          <span>Invites</span>
-          <strong>{summary.invites}</strong>
-        </article>
-        <article>
-          <span>Requests</span>
-          <strong>{requestCount}</strong>
-        </article>
-      </section>
-
-      <section className="card access-filter-card">
-        <Input
-          label="Search"
-          onChange={(event) => updateFilters({ search: event.target.value })}
-          placeholder="name, email, role, status..."
-          value={filters.search}
-        />
-        <label className="field">
-          <span className="field__label">Type</span>
-          <select
-            onChange={(event) => updateFilters({ source: event.target.value })}
-            value={filters.source}
-          >
-            <option value={ALL_SOURCE}>All records</option>
-            <option value="member">Members</option>
-            {canManageMembers && <option value="invite">Invites</option>}
-            {canManageMembers && <option value="request">Requests</option>}
-          </select>
-        </label>
-        <label className="field">
-          <span className="field__label">Status</span>
-          <select
-            onChange={(event) => updateFilters({ status: event.target.value })}
-            value={filters.status}
-          >
-            <option value="all">All statuses</option>
-            <option value="ACTIVE">Active</option>
-            <option value="SUSPENDED">Suspended</option>
-            <option value="PENDING">Pending</option>
-            <option value="ACCEPTED">Accepted</option>
-            <option value="REJECTED">Rejected</option>
-            <option value="REVOKED">Revoked</option>
-            <option value="EXPIRED">Expired</option>
-            <option value="CANCELED">Canceled</option>
-          </select>
-        </label>
-        <label className="field">
-          <span className="field__label">Role</span>
-          <select
-            onChange={(event) => updateFilters({ roleId: event.target.value })}
-            value={filters.roleId}
-          >
-            <option value="">All roles</option>
-            {roles.map((role) => (
-              <option key={role.id} value={role.id}>
-                {role.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
-
       <section className="card">
-        <div className="section-heading">
-          <div>
-            <span className="card__label">Unified access directory</span>
-            <h2>{rowsPagination?.total ?? rows.length} matching records</h2>
+        <div className="table-toolbar">
+          <div className="table-toolbar__search">
+            <input
+              aria-label="Search members"
+              className="table-toolbar__input"
+              onChange={(event) => updateFilters({ search: event.target.value })}
+              placeholder="Search by name, email..."
+              type="search"
+              value={filters.search}
+            />
+          </div>
+          <div className="table-toolbar__filters">
+            <select
+              aria-label="Filter record type"
+              className="table-toolbar__select"
+              onChange={(event) => updateFilters({ source: event.target.value })}
+              value={filters.source}
+            >
+              <option value={ALL_SOURCE}>All records</option>
+              <option value="member">Members</option>
+              {canManageMembers && <option value="invite">Invites</option>}
+              {canManageMembers && <option value="request">Requests</option>}
+            </select>
+            <select
+              aria-label="Filter status"
+              className="table-toolbar__select"
+              onChange={(event) => updateFilters({ status: event.target.value })}
+              value={filters.status}
+            >
+              <option value="all">All statuses</option>
+              <option value="ACTIVE">Active</option>
+              <option value="SUSPENDED">Suspended</option>
+              <option value="PENDING">Pending</option>
+              <option value="ACCEPTED">Accepted</option>
+              <option value="REJECTED">Rejected</option>
+              <option value="REVOKED">Revoked</option>
+              <option value="EXPIRED">Expired</option>
+              <option value="CANCELED">Canceled</option>
+            </select>
+            <select
+              aria-label="Filter role"
+              className="table-toolbar__select"
+              onChange={(event) => updateFilters({ roleId: event.target.value })}
+              value={filters.roleId}
+            >
+              <option value="">All roles</option>
+              {roles.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.name}
+                </option>
+              ))}
+            </select>
+            <span className="table-toolbar__counter">
+              {summary.total} records · {summary.members} members
+            </span>
           </div>
         </div>
 
@@ -1398,7 +1375,6 @@ function PlatformPeopleAccess() {
     <main className="page page--wide page--people-access">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Platform administration</p>
           <h1>People access</h1>
           <p>
             Review users, organization access, role state, and account status
@@ -1418,50 +1394,50 @@ function PlatformPeopleAccess() {
         </Alert>
       )}
 
-      <section className="card access-filter-card access-filter-card--platform">
-        <Input
-          label="Search"
-          onChange={(event) => updateFilters({ search: event.target.value })}
-          placeholder="name, email, organization..."
-          value={filters.search}
-        />
-        <label className="field">
-          <span className="field__label">Organization</span>
-          <select
-            onChange={(event) => updateFilters({ organizationId: event.target.value })}
-            value={filters.organizationId}
-          >
-            <option value="">All organizations</option>
-            {organizations.map((organizationRecord) => {
-              const organization =
-                organizationRecord.organization ?? organizationRecord
-
-              return (
-                <option key={organization.id} value={organization.id}>
-                  {organization.name}
-                </option>
-              )
-            })}
-          </select>
-        </label>
-        <label className="field">
-          <span className="field__label">Account status</span>
-          <select
-            onChange={(event) => updateFilters({ status: event.target.value })}
-            value={filters.status}
-          >
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="all">All</option>
-          </select>
-        </label>
-      </section>
-
       <section className="card">
-        <div className="section-heading">
-          <div>
-            <span className="card__label">Unified people directory</span>
-            <h2>{pagination?.total ?? users.length} users</h2>
+        <div className="table-toolbar">
+          <div className="table-toolbar__search">
+            <input
+              aria-label="Search users"
+              className="table-toolbar__input"
+              onChange={(event) => updateFilters({ search: event.target.value })}
+              placeholder="Search by name, email..."
+              type="search"
+              value={filters.search}
+            />
+          </div>
+          <div className="table-toolbar__filters">
+            <select
+              aria-label="Filter organization"
+              className="table-toolbar__select"
+              onChange={(event) => updateFilters({ organizationId: event.target.value })}
+              value={filters.organizationId}
+            >
+              <option value="">All organizations</option>
+              {organizations.map((organizationRecord) => {
+                const organization =
+                  organizationRecord.organization ?? organizationRecord
+
+                return (
+                  <option key={organization.id} value={organization.id}>
+                    {organization.name}
+                  </option>
+                )
+              })}
+            </select>
+            <select
+              aria-label="Filter status"
+              className="table-toolbar__select"
+              onChange={(event) => updateFilters({ status: event.target.value })}
+              value={filters.status}
+            >
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="all">All statuses</option>
+            </select>
+            <span className="table-toolbar__counter">
+              {pagination?.total ?? users.length} users
+            </span>
           </div>
         </div>
 

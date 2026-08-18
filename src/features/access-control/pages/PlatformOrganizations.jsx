@@ -11,6 +11,7 @@ import { getFriendlyErrorMessage } from '../../../shared/utils/errorMessages.js'
 import { useAccessControl } from '../hooks/useAccessControl.js'
 import {
   createOrganization,
+  deleteOrganization,
   getPlatformOrganizations,
 } from '../services/accessControlApi.js'
 
@@ -88,21 +89,31 @@ function OrganizationIcon({ name, size = 16 }) {
           <path d="M5 5h6M5 5v14h14v-6" {...commonProps} />
         </>
       )}
+      {name === 'trash' && (
+        <>
+          <path d="M4 7h16" {...commonProps} />
+          <path d="M10 11v6M14 11v6" {...commonProps} />
+          <path
+            d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13M9 7V4h6v3"
+            {...commonProps}
+          />
+        </>
+      )}
     </svg>
   )
 }
 
-function OrganizationActionIconButton({ label, onClick }) {
+function OrganizationActionIconButton({ label, onClick, tone = 'default', icon = 'open' }) {
   return (
     <button
       aria-label={label}
-      className="access-icon-button"
+      className={`access-icon-button access-icon-button--${tone}`}
       data-tooltip={label}
       onClick={onClick}
       title={label}
       type="button"
     >
-      <OrganizationIcon name="open" />
+      <OrganizationIcon name={icon} />
     </button>
   )
 }
@@ -124,6 +135,8 @@ export function PlatformOrganizations() {
     status: '',
   })
   const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [organizationToDelete, setOrganizationToDelete] = useState(null)
+  const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [notice, setNotice] = useState('')
@@ -250,6 +263,37 @@ export function PlatformOrganizations() {
     }
   }
 
+  function closeDeleteModal() {
+    if (isSaving) return
+    setOrganizationToDelete(null)
+    setDeleteConfirmation('')
+  }
+
+  async function handleDeleteOrganization(event) {
+    event.preventDefault()
+
+    if (!organizationToDelete) return
+
+    setIsSaving(true)
+    setActionError(null)
+    setNotice('')
+
+    try {
+      await deleteOrganization(organizationToDelete.id, deleteConfirmation.trim())
+      notifications.success(`${organizationToDelete.name} was deleted.`)
+      closeDeleteModal()
+      await Promise.all([
+        loadOrganizations(),
+        refreshAccess().catch(() => null),
+      ])
+    } catch (error) {
+      setActionError(error)
+      notifications.error(getFriendlyErrorMessage(error))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   if (status === 'loading' || status === 'idle') {
     return (
       <main className="page">
@@ -278,7 +322,6 @@ export function PlatformOrganizations() {
     <main className="page page--wide">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Platform administration</p>
           <h1>Organizations</h1>
           <p>
             Create organizations and keep the organization directory in one
@@ -310,16 +353,21 @@ export function PlatformOrganizations() {
 
       <section className="platform-organization-layout">
         <section className="card">
-          <div className="filter-bar">
-            <Input
-              label="Search organizations"
-              onChange={(event) => updateFilters({ search: event.target.value })}
-              placeholder="name or URL name..."
-              value={filters.search}
-            />
-            <label className="field">
-              <span className="field__label">Status</span>
+          <div className="table-toolbar">
+            <div className="table-toolbar__search">
+              <input
+                aria-label="Search organizations"
+                className="table-toolbar__input"
+                onChange={(event) => updateFilters({ search: event.target.value })}
+                placeholder="Search organizations by name or slug..."
+                type="search"
+                value={filters.search}
+              />
+            </div>
+            <div className="table-toolbar__filters">
               <select
+                aria-label="Filter status"
+                className="table-toolbar__select"
                 onChange={(event) => updateFilters({ status: event.target.value })}
                 value={filters.status}
               >
@@ -327,40 +375,20 @@ export function PlatformOrganizations() {
                 <option value="ACTIVE">Active</option>
                 <option value="SUSPENDED">Suspended</option>
               </select>
-            </label>
-            <label className="field">
-              <span className="field__label">Sort</span>
               <select
+                aria-label="Sort order"
+                className="table-toolbar__select"
                 onChange={(event) => updateFilters({ sort: event.target.value })}
                 value={filters.sort}
               >
-                <option value="name">Name</option>
+                <option value="name">Name (A-Z)</option>
                 <option value="newest">Newest first</option>
                 <option value="oldest">Oldest first</option>
               </select>
-            </label>
-          </div>
-
-          <div className="section-heading">
-            <div>
-              <span className="card__label">Organization directory</span>
-              <h2>{pagination?.total ?? organizations.length} organizations</h2>
+              <span className="table-toolbar__counter">
+                {organizations.length} {organizations.length === 1 ? 'organization' : 'organizations'} · {totalMembers} members
+              </span>
             </div>
-          </div>
-
-          <div className="metric-grid metric-grid--compact">
-            <article>
-              <span>Organizations shown</span>
-              <strong>{organizations.length}</strong>
-            </article>
-            <article>
-              <span>Members shown</span>
-              <strong>{totalMembers}</strong>
-            </article>
-            <article>
-              <span>Total matches</span>
-              <strong>{pagination?.total ?? organizations.length}</strong>
-            </article>
           </div>
 
           {isLoading ? (
@@ -412,6 +440,16 @@ export function PlatformOrganizations() {
                     <OrganizationActionIconButton
                       label="Open organization"
                       onClick={() => setSelectedOrganizationId(organization.id)}
+                    />
+                    <OrganizationActionIconButton
+                      icon="trash"
+                      label="Delete organization"
+                      onClick={() => {
+                        setOrganizationToDelete(organization)
+                        setDeleteConfirmation('')
+                        setActionError(null)
+                      }}
+                      tone="danger"
                     />
                   </span>
                 </div>
@@ -496,6 +534,43 @@ export function PlatformOrganizations() {
             </Button>
             <Button disabled={isSaving} type="submit">
               {isSaving ? 'Creating...' : 'Create organization'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(organizationToDelete)}
+        onClose={closeDeleteModal}
+        title="Delete organization"
+      >
+        {actionError && (
+          <Alert onDismiss={() => setActionError(null)}>
+            {getFriendlyErrorMessage(actionError)}
+          </Alert>
+        )}
+        <form className="form" onSubmit={handleDeleteOrganization}>
+          <div>
+            <span className="card__label">Permanent organization removal</span>
+            <p>
+              This deletes the organization and its related organization data. Type the
+              organization name or URL name to confirm.
+            </p>
+          </div>
+          <Input
+            autoComplete="off"
+            label="Confirm organization"
+            onChange={(event) => setDeleteConfirmation(event.target.value)}
+            placeholder={organizationToDelete?.name ?? 'Organization name'}
+            required
+            value={deleteConfirmation}
+          />
+          <div className="form-actions">
+            <Button disabled={isSaving} onClick={closeDeleteModal} variant="secondary">
+              Cancel
+            </Button>
+            <Button disabled={isSaving || !deleteConfirmation.trim()} type="submit" variant="danger">
+              {isSaving ? 'Deleting...' : 'Delete organization'}
             </Button>
           </div>
         </form>

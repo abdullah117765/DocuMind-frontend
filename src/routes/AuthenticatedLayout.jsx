@@ -32,6 +32,16 @@ function Icon({ className = '', name, size = 18 }) {
       width={size}
       xmlns="http://www.w3.org/2000/svg"
     >
+      {name === 'idraak' && (
+        <>
+          <path
+            d="M12 3L14.2 9.8L21 12L14.2 14.2L12 21L9.8 14.2L3 12L9.8 9.8Z"
+            fill="currentColor"
+            stroke="none"
+          />
+          <circle cx="18" cy="6" r="1.5" fill="currentColor" opacity="0.8" stroke="none" />
+        </>
+      )}
       {name === 'dashboard' && (
         <>
           <rect height="7" rx="1.5" {...commonProps} width="7" x="3" y="3" />
@@ -280,7 +290,7 @@ export function AuthenticatedLayout({ children }) {
               onClick={() => setIsProfileOpen(false)}
               to="/account/profile"
             >
-              View profile
+              Settings
             </Link>
             <Link
               onClick={() => setIsProfileOpen(false)}
@@ -309,9 +319,9 @@ export function AuthenticatedLayout({ children }) {
         <div className="sidebar-brand">
           <Link className="brand" to="/dashboard">
             <span aria-hidden="true" className="brand__mark">
-              <Icon name="file" size={16} />
+              <Icon name="idraak" size={16} />
             </span>
-            <span>DOCUMIND</span>
+            <span>Idraak AI</span>
           </Link>
         </div>
 
@@ -450,14 +460,18 @@ export function AuthenticatedLayout({ children }) {
           <header className="app-topbar app-horizontal-bar">
             <Link className="brand" to="/dashboard">
               <span aria-hidden="true" className="brand__mark">
-                <Icon name="file" size={16} />
+                <Icon name="idraak" size={16} />
               </span>
-              <span>DOCUMIND</span>
+              <span>Idraak AI</span>
             </Link>
 
             <nav aria-label="Primary navigation" className="app-nav">
               {navigationItems.map((item) => (
-                <NavLink key={item.to} to={item.to}>
+                <NavLink
+                  className={({ isActive }) => (isActive ? 'active' : '')}
+                  key={item.to}
+                  to={item.to}
+                >
                   {item.label}
                 </NavLink>
               ))}

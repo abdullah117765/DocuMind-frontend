@@ -192,7 +192,6 @@ function RolesContent() {
     <main className="page page--wide">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Access control</p>
           <h1>Roles</h1>
           <p>
             Manage custom roles for {selectedOrganization.organization.name}.
@@ -205,24 +204,22 @@ function RolesContent() {
       {notice && <Alert tone="success">{notice}</Alert>}
       {actionError && <Alert>{getFriendlyErrorMessage(actionError)}</Alert>}
 
-      <section className="section-block">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Role directory</p>
-            <h2>{pagination?.total ?? roles.length} available roles</h2>
-          </div>
-        </div>
-
-        <section className="card filter-bar">
-            <Input
-              label="Search roles"
+      <section className="card" style={{ marginBottom: '1.25rem' }}>
+        <div className="table-toolbar">
+          <div className="table-toolbar__search">
+            <input
+              aria-label="Search roles"
+              className="table-toolbar__input"
               onChange={(event) => updateFilters({ search: event.target.value })}
-              placeholder="role or access area..."
+              placeholder="Search roles or permissions..."
+              type="search"
               value={filters.search}
             />
-          <label className="field">
-            <span className="field__label">Type</span>
+          </div>
+          <div className="table-toolbar__filters">
             <select
+              aria-label="Filter role type"
+              className="table-toolbar__select"
               onChange={(event) => updateFilters({ type: event.target.value })}
               value={filters.type}
             >
@@ -230,9 +227,14 @@ function RolesContent() {
               <option value="system">System roles</option>
               <option value="custom">Custom roles</option>
             </select>
-          </label>
-        </section>
+            <span className="table-toolbar__counter">
+              {pagination?.total ?? roles.length} available roles
+            </span>
+          </div>
+        </div>
+      </section>
 
+      <section className="section-block">
         <div className="role-grid">
           {roles.map((role) => {
             const assignedToCurrentUser = selfAssignedRoleIds.has(role.id)

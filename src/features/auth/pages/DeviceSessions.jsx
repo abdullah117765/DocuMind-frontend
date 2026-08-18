@@ -122,7 +122,6 @@ export function DeviceSessions() {
     <main className="page page--account-sessions">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Account security</p>
           <h1>Active devices</h1>
           <p>Review and remove browsers currently signed in to your account.</p>
         </div>

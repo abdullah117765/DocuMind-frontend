@@ -43,21 +43,27 @@ export function ListPagination({
           </select>
         </label>
         <Button
+          aria-label="Previous page"
+          className="pagination-bar__nav"
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
+          title="Previous page"
           variant="secondary"
         >
-          Previous
+          ‹
         </Button>
         <span className="pagination-bar__page">
           Page {page} of {pageCount}
         </span>
         <Button
+          aria-label="Next page"
+          className="pagination-bar__nav"
           disabled={page >= pageCount}
           onClick={() => onPageChange(page + 1)}
+          title="Next page"
           variant="secondary"
         >
-          Next
+          ›
         </Button>
       </div>
     </div>

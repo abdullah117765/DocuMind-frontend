@@ -10,6 +10,27 @@ import { useAccessControl } from '../../access-control/hooks/useAccessControl.js
 import { useAuth } from '../../auth/hooks/useAuth.js'
 import { getAuditLogs } from '../services/auditApi.js'
 
+function DownloadIcon({ size = 18 }) {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height={size}
+      viewBox="0 0 24 24"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M12 4v10m0 0 4-4m-4 4-4-4M5 20h14"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+    </svg>
+  )
+}
+
 function formatDate(value) {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
@@ -61,6 +82,29 @@ function formatLogDetails(metadata) {
 
 function getActor(log) {
   return log.actor ?? log.metadata?.actor ?? null
+}
+
+function buildAuditLogText(logs) {
+  if (!logs.length) return 'No audit logs found for the current filters.'
+
+  return logs
+    .map((log, index) => {
+      const actor = getActor(log)
+
+      return [
+        `#${index + 1}`,
+        `When: ${formatDate(log.createdAt)}`,
+        `Actor: ${actor?.name ?? actor?.email ?? 'System'}`,
+        actor?.email ? `Email: ${actor.email}` : null,
+        `Action: ${formatActionLabel(log.action)}`,
+        `Area: ${log.organization?.name ?? log.resource ?? 'Platform'}`,
+        `Status: ${log.statusCode < 400 ? 'Completed' : 'Needs review'}`,
+        `Details: ${formatLogDetails(log.metadata)}`,
+      ]
+        .filter(Boolean)
+        .join('\n')
+    })
+    .join('\n\n')
 }
 
 const DEFAULT_PAGE_SIZE = 10
@@ -151,6 +195,20 @@ export function AuditLogs() {
     pageSize,
   ])
 
+  function downloadLogs() {
+    const blob = new Blob([buildAuditLogText(logs)], {
+      type: 'text/plain;charset=utf-8',
+    })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `audit-logs-${new Date().toISOString().slice(0, 10)}.txt`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
   useEffect(() => {
     const handle = window.setTimeout(() => {
       void loadLogs()
@@ -171,9 +229,6 @@ export function AuditLogs() {
     <main className="page page--wide page--audit-logs">
       <header className="page-header">
         <div>
-          <p className="eyebrow">
-            {isSuperAdmin ? 'Platform security' : 'Organization security'}
-          </p>
           <h1>Audit logs</h1>
           <p>
             {isSuperAdmin
@@ -181,7 +236,18 @@ export function AuditLogs() {
               : `Review state-changing actions for ${selectedOrganization?.organization.name}.`}
           </p>
         </div>
-        <RefreshIconButton label="Refresh audit logs" onClick={() => void loadLogs()} />
+        <div className="page-header__actions">
+          <button
+            aria-label="Download audit logs"
+            className="icon-only-button"
+            onClick={downloadLogs}
+            title="Download audit logs"
+            type="button"
+          >
+            <DownloadIcon />
+          </button>
+          <RefreshIconButton label="Refresh audit logs" onClick={() => void loadLogs()} />
+        </div>
       </header>
 
       {error && (
@@ -190,59 +256,62 @@ export function AuditLogs() {
         </Alert>
       )}
 
-      <section className="card filter-bar audit-filter-bar">
-        <Input
-          label="Search logs"
-          onChange={(event) =>
-            updateFilters({ search: event.target.value })
-          }
-          placeholder="user, organization, action..."
-          value={filters.search}
-        />
-        <Input
-          label="Action"
-          onChange={(event) =>
-            updateFilters({ action: event.target.value })
-          }
-          placeholder="invite, role, document..."
-          value={filters.action}
-        />
-        <label className="field">
-          <span className="field__label">Outcome</span>
-          <select
-            onChange={(event) =>
-              updateFilters({ status: event.target.value })
-            }
-            value={filters.status}
-          >
-            <option value="">All outcomes</option>
-            <option value="success">Success</option>
-            <option value="warning">Needs review</option>
-          </select>
-        </label>
-        <label className="field">
-          <span className="field__label">Date</span>
-          <select
-            onChange={(event) =>
-              updateFilters({
-                dateRange: event.target.value,
-              })
-            }
-            value={filters.dateRange}
-          >
-            <option value="">Any time</option>
-            <option value="24h">Last 24 hours</option>
-            <option value="7d">Last 7 days</option>
-            <option value="30d">Last 30 days</option>
-          </select>
-        </label>
-      </section>
-
       <section className="card">
-        <div className="section-heading">
-          <div>
-            <span className="card__label">Recent events</span>
-            <h2>{pagination?.total ?? logs.length} records</h2>
+        <div className="table-toolbar">
+          <div className="table-toolbar__search">
+            <input
+              aria-label="Search logs"
+              className="table-toolbar__input"
+              onChange={(event) =>
+                updateFilters({ search: event.target.value })
+              }
+              placeholder="Search user, action, target..."
+              type="search"
+              value={filters.search}
+            />
+          </div>
+          <div className="table-toolbar__filters">
+            <input
+              aria-label="Filter action"
+              className="table-toolbar__input"
+              onChange={(event) =>
+                updateFilters({ action: event.target.value })
+              }
+              placeholder="Action (e.g. invite)"
+              style={{ maxWidth: '9rem' }}
+              type="search"
+              value={filters.action}
+            />
+            <select
+              aria-label="Filter outcome"
+              className="table-toolbar__select"
+              onChange={(event) =>
+                updateFilters({ status: event.target.value })
+              }
+              value={filters.status}
+            >
+              <option value="">All outcomes</option>
+              <option value="success">Success</option>
+              <option value="warning">Needs review</option>
+            </select>
+            <select
+              aria-label="Filter date range"
+              className="table-toolbar__select"
+              onChange={(event) =>
+                updateFilters({
+                  dateRange: event.target.value,
+                })
+              }
+              value={filters.dateRange}
+            >
+              <option value="">Any time</option>
+              <option value="24h">Last 24h</option>
+              <option value="7d">Last 7d</option>
+              <option value="30d">Last 30d</option>
+            </select>
+            <span className="table-toolbar__counter">
+              {pagination?.total ?? logs.length} records
+            </span>
           </div>
         </div>
 

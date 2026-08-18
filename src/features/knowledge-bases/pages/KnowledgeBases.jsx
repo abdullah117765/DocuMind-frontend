@@ -10,6 +10,8 @@ import { useNotifications } from '../../../shared/useNotifications.js'
 import {
   addDocumentsToCollection,
   createKnowledgeBase,
+  createKnowledgeBaseCollection,
+  createKnowledgeBaseTag,
   deleteKnowledgeBase,
   getKnowledgeBase,
   listKnowledgeBaseCategories,
@@ -20,7 +22,7 @@ import {
   removeDocumentFromCollection,
 } from '../services/knowledgeBasesApi.js'
 
-const DETAIL_TABS = ['overview', 'documents', 'collections', 'tags']
+const DETAIL_TABS = ['overview', 'documents', 'collections', 'tags', 'settings']
 const KB_PAGE_SIZE = 4
 const DOCUMENT_PAGE_SIZE = 10
 
@@ -206,6 +208,7 @@ export function KnowledgeBases() {
   const [isDeletingKnowledgeBase, setIsDeletingKnowledgeBase] = useState(false)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [isTagSaving, setIsTagSaving] = useState(false)
   const [kbPage, setKbPage] = useState(1)
   const [kbPageSize, setKbPageSize] = useState(KB_PAGE_SIZE)
   const [knowledgeBases, setKnowledgeBases] = useState([])
@@ -216,6 +219,11 @@ export function KnowledgeBases() {
   const [selectedCollectionDocumentIds, setSelectedCollectionDocumentIds] =
     useState([])
   const [showCreate, setShowCreate] = useState(false)
+  const [collectionForm, setCollectionForm] = useState({
+    description: '',
+    name: '',
+  })
+  const [tagForm, setTagForm] = useState({ name: '' })
   const [tags, setTags] = useState([])
 
   const selectedKnowledgeBaseId = selectedKnowledgeBase?.id ?? ''
@@ -371,25 +379,12 @@ export function KnowledgeBases() {
   async function handleDeleteEmptyKnowledgeBase() {
     if (!selectedKnowledgeBase || isDeletingKnowledgeBase) return
 
-    const totalDocuments =
-      selectedKnowledgeBase.counts?.documents ?? documentPagination?.total ?? documents.length
-
-    if (selectedKnowledgeBase.isDefault) {
-      notifications.info('The default Knowledge Base cannot be deleted.')
-      return
-    }
-
-    if (totalDocuments > 0) {
-      notifications.info('Move or remove all documents before deleting this Knowledge Base.')
-      return
-    }
-
     setIsDeletingKnowledgeBase(true)
     setError(null)
 
     try {
       await deleteKnowledgeBase(organizationId, selectedKnowledgeBase.id)
-      notifications.success('Empty Knowledge Base deleted.')
+      notifications.success('Knowledge Base and its contents were deleted.')
       backToLibrary()
       void loadKnowledgeBases()
     } catch (requestError) {
@@ -411,6 +406,83 @@ export function KnowledgeBases() {
         ? current.filter((id) => id !== documentId)
         : [...current, documentId],
     )
+  }
+
+  async function handleCreateCollection(event) {
+    event.preventDefault()
+
+    if (!selectedKnowledgeBase) return
+
+    const name = collectionForm.name.trim().replace(/\s+/g, ' ')
+    const description = collectionForm.description.trim().replace(/\s+/g, ' ')
+
+    if (!name) {
+      notifications.error('Enter a Collection name.')
+      return
+    }
+
+    setIsCollectionSaving(true)
+    setError(null)
+
+    try {
+      const collection = await createKnowledgeBaseCollection(
+        organizationId,
+        selectedKnowledgeBase.id,
+        {
+          name,
+          description: description || undefined,
+        },
+      )
+
+      setCollectionForm({ description: '', name: '' })
+      setSelectedCollectionId(collection.id)
+      setSelectedCollectionDocumentIds([])
+      notifications.success('Collection created.')
+      await loadKnowledgeBaseDetail(selectedKnowledgeBase.id)
+    } catch (requestError) {
+      setError(requestError)
+      notifications.error(
+        getFriendlyError(
+          requestError,
+          'We could not create this Collection. Please try again.',
+        ),
+      )
+    } finally {
+      setIsCollectionSaving(false)
+    }
+  }
+
+  async function handleCreateTag(event) {
+    event.preventDefault()
+
+    const name = tagForm.name.trim().replace(/\s+/g, ' ')
+
+    if (!name) {
+      notifications.error('Enter a tag name.')
+      return
+    }
+
+    setIsTagSaving(true)
+    setError(null)
+
+    try {
+      await createKnowledgeBaseTag(organizationId, { name })
+      setTagForm({ name: '' })
+      notifications.success('Tag created.')
+      if (selectedKnowledgeBase) {
+        await loadKnowledgeBaseDetail(selectedKnowledgeBase.id)
+      }
+    } catch (requestError) {
+      setError(requestError)
+      notifications.error(
+        getFriendlyError(
+          requestError,
+          'We could not create this tag. Please try again.',
+        ),
+      )
+    } finally {
+      setIsTagSaving(false)
+    }
   }
 
   async function handleAddDocumentsToCollection() {
@@ -543,18 +615,6 @@ export function KnowledgeBases() {
           <span className={`status-badge status-badge--${getStatusTone(selectedKnowledgeBase.status)}`}>
             {getStatusLabel(selectedKnowledgeBase.status)}
           </span>
-          {canManageKnowledgeBases &&
-            !selectedKnowledgeBase.isDefault &&
-            totalDocuments === 0 && (
-              <button
-                className="button button--danger button--compact kb-detail-delete"
-                disabled={isDeletingKnowledgeBase}
-                onClick={handleDeleteEmptyKnowledgeBase}
-                type="button"
-              >
-                {isDeletingKnowledgeBase ? 'Deleting…' : 'Delete empty Knowledge Base'}
-              </button>
-            )}
         </header>
 
         {error && (
@@ -601,7 +661,9 @@ export function KnowledgeBases() {
                       ? `Documents (${totalDocuments})`
                       : tab === 'collections'
                         ? `Collections (${totalCollections})`
-                        : 'Tags'}
+                        : tab === 'tags'
+                          ? 'Tags'
+                          : 'Settings'}
                 </button>
               ))}
             </nav>
@@ -685,7 +747,62 @@ export function KnowledgeBases() {
               </section>
             ) : activeTab === 'collections' ? (
               <section className="kb-section-panel">
-                <h2 className="kb-section-title">Collections</h2>
+                <div className="kb-section-header">
+                  <div>
+                    <h2 className="kb-section-title">Collections</h2>
+                    <p className="kb-muted">
+                      Create collections inside this Knowledge Base and group related documents.
+                    </p>
+                  </div>
+                </div>
+
+                {canManageKnowledgeBases && (
+                  <form className="card kb-inline-form" onSubmit={handleCreateCollection}>
+                    <div>
+                      <span className="card__label">New Collection</span>
+                      <h3>Add a collection</h3>
+                      <p className="kb-muted">
+                        Collections help users browse related documents together.
+                      </p>
+                    </div>
+                    <label className="field">
+                      <span>Collection name</span>
+                      <input
+                        disabled={isCollectionSaving}
+                        maxLength={120}
+                        onChange={(event) =>
+                          setCollectionForm((current) => ({
+                            ...current,
+                            name: event.target.value,
+                          }))
+                        }
+                        placeholder="Example: Policies"
+                        value={collectionForm.name}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Description optional</span>
+                      <input
+                        disabled={isCollectionSaving}
+                        maxLength={500}
+                        onChange={(event) =>
+                          setCollectionForm((current) => ({
+                            ...current,
+                            description: event.target.value,
+                          }))
+                        }
+                        placeholder="Short description"
+                        value={collectionForm.description}
+                      />
+                    </label>
+                    <div className="form-actions">
+                      <Button disabled={isCollectionSaving} type="submit">
+                        {isCollectionSaving ? 'Creating...' : 'Create Collection'}
+                      </Button>
+                    </div>
+                  </form>
+                )}
+
                 {collections.length === 0 ? (
                   <section className="empty-state empty-state--compact">
                     <h2>No collections yet</h2>
@@ -814,9 +931,45 @@ export function KnowledgeBases() {
                   </section>
                 )}
               </section>
-            ) : (
+            ) : activeTab === 'tags' ? (
               <section className="kb-tags-panel">
-                <h2>Tags</h2>
+                <div className="kb-section-header">
+                  <div>
+                    <h2>Tags</h2>
+                    <p className="kb-muted">
+                      Create simple labels that can be attached to documents during upload.
+                    </p>
+                  </div>
+                </div>
+
+                {canManageKnowledgeBases && (
+                  <form className="card kb-inline-form" onSubmit={handleCreateTag}>
+                    <div>
+                      <span className="card__label">New Tag</span>
+                      <h3>Add a tag</h3>
+                      <p className="kb-muted">
+                        Use clear labels such as onboarding, legal, finance, or policy.
+                      </p>
+                    </div>
+                    <label className="field">
+                      <span>Tag name</span>
+                      <input
+                        disabled={isTagSaving}
+                        maxLength={60}
+                        onChange={(event) => setTagForm({ name: event.target.value })}
+                        placeholder="Example: onboarding"
+                        value={tagForm.name}
+                      />
+                    </label>
+                    <div className="form-actions">
+                      <Button disabled={isTagSaving} type="submit">
+                        {isTagSaving ? 'Creating...' : 'Create Tag'}
+                      </Button>
+                    </div>
+                  </form>
+                )}
+
+                <h2>Available tags</h2>
                 {visibleTags.length === 0 ? (
                   <p className="kb-muted">No tags are available yet.</p>
                 ) : (
@@ -843,6 +996,56 @@ export function KnowledgeBases() {
                       </span>
                     ))}
                   </div>
+                )}
+              </section>
+            ) : (
+              <section className="kb-settings-panel">
+                <section className="card kb-panel-card">
+                  <div className="kb-panel-card__header">
+                    <div>
+                      <h2>Knowledge Base settings</h2>
+                      <p className="kb-muted">
+                        Review this Knowledge Base and manage safe administrative actions.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="kb-settings-list">
+                    <div>
+                      <span className="card__label">Name</span>
+                      <strong>{selectedKnowledgeBase.name}</strong>
+                    </div>
+                    <div>
+                      <span className="card__label">Documents</span>
+                      <strong>{totalDocuments}</strong>
+                    </div>
+                    <div>
+                      <span className="card__label">Collections</span>
+                      <strong>{totalCollections}</strong>
+                    </div>
+                  </div>
+                </section>
+
+                {canManageKnowledgeBases && (
+                  <section className="card kb-danger-zone">
+                    <div>
+                      <span className="card__label">Danger Zone</span>
+                      <h2>Delete Knowledge Base</h2>
+                      <p className="kb-muted">
+                        This removes the Knowledge Base, its collections, and moves all documents
+                        inside it to organization-deleted files.
+                      </p>
+                    </div>
+                    <Button
+                      disabled={
+                        isDeletingKnowledgeBase
+                      }
+                      onClick={handleDeleteEmptyKnowledgeBase}
+                      variant="danger"
+                    >
+                      {isDeletingKnowledgeBase ? 'Deleting...' : 'Delete Knowledge Base'}
+                    </Button>
+                  </section>
                 )}
               </section>
             )}
@@ -941,7 +1144,19 @@ export function KnowledgeBases() {
         <>
           <section className="kb-card-grid">
             {knowledgeBases.map((knowledgeBase) => (
-              <article className="kb-library-card" key={knowledgeBase.id}>
+              <article
+                className="kb-library-card kb-library-card--clickable"
+                key={knowledgeBase.id}
+                onClick={() => openKnowledgeBase(knowledgeBase)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    openKnowledgeBase(knowledgeBase)
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+              >
                 <header>
                   <span className="kb-card-icon">
                     <KnowledgeIcon name="book" />
@@ -970,7 +1185,13 @@ export function KnowledgeBases() {
                 </div>
                 <footer>
                   <span>Created {formatDate(knowledgeBase.createdAt)}</span>
-                  <button onClick={() => openKnowledgeBase(knowledgeBase)} type="button">
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      openKnowledgeBase(knowledgeBase)
+                    }}
+                    type="button"
+                  >
                     Open →
                   </button>
                 </footer>
