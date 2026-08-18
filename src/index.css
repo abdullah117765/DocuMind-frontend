@@ -9238,27 +9238,35 @@ h6,
 .kb-settings-panel {
   display: grid;
   gap: 1rem;
+  min-width: 0;
   padding: 1rem;
 }
 
 .kb-settings-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.8rem;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.55fr) minmax(0, 0.55fr);
+  gap: 0.55rem;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   margin-top: 1rem;
 }
 
 .kb-settings-list > div {
   display: grid;
   gap: 0.25rem;
+  box-sizing: border-box;
   min-width: 0;
-  padding: 0.9rem;
+  max-width: 100%;
+  padding: 0.75rem 0.8rem;
   border: 1px solid var(--border);
-  border-radius: 0.9rem;
+  border-radius: 0.7rem;
   background: var(--surface-muted);
 }
 
 .kb-settings-list strong {
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   color: var(--text);
   text-overflow: ellipsis;
@@ -10431,6 +10439,60 @@ h6,
 .document-cell--file > .file-icon {
   flex: 0 0 auto;
   align-self: center;
+}
+
+/* Ask Documents: clean checkbox rendering without the native focus rectangle */
+.rag-scope-option input[type='checkbox'],
+.rag-document-option input[type='checkbox'] {
+  box-sizing: border-box;
+  display: inline-block !important;
+  width: 1rem !important;
+  min-width: 1rem !important;
+  max-width: 1rem !important;
+  height: 1rem !important;
+  min-height: 1rem !important;
+  max-height: 1rem !important;
+  flex: 0 0 1rem !important;
+  margin: 0 !important;
+  border: 1.5px solid color-mix(in srgb, var(--muted) 42%, var(--border));
+  border-radius: 0.12rem;
+  appearance: none;
+  background: var(--surface);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 0.68rem 0.68rem;
+  outline: none;
+  cursor: pointer;
+  line-height: 1;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.rag-scope-option input[type='checkbox']::before,
+.rag-document-option input[type='checkbox']::before {
+  content: none !important;
+}
+
+.rag-scope-option input[type='checkbox']:checked,
+.rag-document-option input[type='checkbox']:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M10 3L4.75 8.25L2 5.5' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 0.68rem 0.68rem;
+}
+
+.rag-scope-option input[type='checkbox']:checked::before,
+.rag-document-option input[type='checkbox']:checked::before {
+  content: none !important;
+}
+
+.rag-scope-option input[type='checkbox']:focus-visible,
+.rag-document-option input[type='checkbox']:focus-visible {
+  box-shadow: 0 0 0 0.18rem color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .document-file-name {

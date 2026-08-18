@@ -632,9 +632,7 @@ export function KnowledgeBases() {
               </span>
               <strong>{totalDocuments}</strong>
             </button>
-            {folders.length === 0 ? (
-              <p className="kb-muted">No folders yet.</p>
-            ) : (
+            {folders.length > 0 &&
               folders.map((folder) => (
                 <button className="kb-folder-item" key={folder.id} type="button">
                   <span title={folder.name}>
@@ -642,8 +640,7 @@ export function KnowledgeBases() {
                   </span>
                   <strong>{folder.counts?.documents ?? folder.documentCount ?? 0}</strong>
                 </button>
-              ))
-            )}
+              ))}
           </aside>
 
           <section className="kb-detail-content">
