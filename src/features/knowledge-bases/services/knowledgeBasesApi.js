@@ -42,6 +42,18 @@ export async function createKnowledgeBase(organizationId, payload) {
   return getResponseData(response).knowledgeBase
 }
 
+export async function archiveKnowledgeBase(organizationId, knowledgeBaseId) {
+  const response = await csrfRequest(
+    knowledgeBasePath(organizationId, `/${encode(knowledgeBaseId)}`),
+    {
+      method: 'DELETE',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).knowledgeBase
+}
+
 export async function getKnowledgeBase(organizationId, knowledgeBaseId) {
   const response = await apiRequest(
     knowledgeBasePath(organizationId, `/${encode(knowledgeBaseId)}`),
@@ -94,6 +106,37 @@ export async function listKnowledgeBaseTags(organizationId) {
   })
 
   return getResponseData(response).tags ?? []
+}
+
+export async function createKnowledgeBaseTag(organizationId, payload) {
+  const response = await csrfRequest(knowledgeBasePath(organizationId, '/tags'), {
+    body: payload,
+    method: 'POST',
+    requiresAuth: true,
+  })
+
+  return getResponseData(response).tag
+}
+
+export async function moveKnowledgeBaseDocument(
+  organizationId,
+  sourceKnowledgeBaseId,
+  documentId,
+  payload,
+) {
+  const response = await csrfRequest(
+    knowledgeBasePath(
+      organizationId,
+      `/${encode(sourceKnowledgeBaseId)}/documents/${encode(documentId)}/move`,
+    ),
+    {
+      body: payload,
+      method: 'PATCH',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).movement
 }
 
 export async function createKnowledgeBaseCollection(
