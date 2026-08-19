@@ -184,7 +184,6 @@ export function ResetPassword() {
       <form className="form" onSubmit={handleSubmit}>
         <Input
           autoComplete="new-password"
-          autoFocus
           error={clientErrors.newPassword || fieldErrors.newPassword}
           hint="8–64 characters with upper/lowercase, a number, and @ # $ % ^ & * !"
           label="New password"

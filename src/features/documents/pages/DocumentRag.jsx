@@ -4,6 +4,7 @@ import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
 import { ListPagination } from '../../../shared/components/ListPagination.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
+import { Modal } from '../../../shared/components/Modal/Modal.jsx'
 import { RefreshIconButton } from '../../../shared/components/RefreshIconButton.jsx'
 import { useNotifications } from '../../../shared/useNotifications.js'
 import { useAccessControl } from '../../access-control/hooks/useAccessControl.js'
@@ -1082,6 +1083,7 @@ export function DocumentRag() {
   const [currentChatId, setCurrentChatId] = useState('')
   const [isChatsLoading, setIsChatsLoading] = useState(false)
   const [isOpeningChat, setIsOpeningChat] = useState(false)
+  const [chatDeleteTargetId, setChatDeleteTargetId] = useState('')
 
   const statusByDocumentId = useMemo(
     () =>
@@ -1417,9 +1419,6 @@ export function DocumentRag() {
   async function handleDeleteChat(chatSessionId) {
     if (!chatSessionId) return
 
-    const confirmed = window.confirm('Delete this chat from your history?')
-    if (!confirmed) return
-
     try {
       await deleteRagChat(organizationId, chatSessionId)
       setChatSessions((current) =>
@@ -1438,6 +1437,8 @@ export function DocumentRag() {
           'We could not delete that chat. Please try again.',
         ),
       )
+    } finally {
+      setChatDeleteTargetId('')
     }
   }
 
@@ -1720,7 +1721,7 @@ export function DocumentRag() {
                     </button>
                     <button
                       className="rag-chat-item__delete"
-                      onClick={() => void handleDeleteChat(chat.id)}
+                      onClick={() => setChatDeleteTargetId(chat.id)}
                       title="Delete chat"
                       type="button"
                     >
@@ -2321,7 +2322,7 @@ export function DocumentRag() {
                         className="rag-source-pill"
                         href={getCitationUrl(organizationId, source)}
                         key={`${sourceDocumentId}-${getSourceLocationLabel(source)}-${index}`}
-                        rel="noreferrer"
+                        rel="noopener noreferrer"
                         title={label}
                         target="_blank"
                       >
@@ -2376,6 +2377,34 @@ export function DocumentRag() {
       )}
         </div>
       </section>
+      <Modal
+        isOpen={Boolean(chatDeleteTargetId)}
+        onClose={() => setChatDeleteTargetId('')}
+        title="Delete chat"
+      >
+        <div className="modal__body">
+          <p>
+            This removes the chat from your history. Your documents will not be
+            changed.
+          </p>
+        </div>
+        <footer className="modal__actions">
+          <Button
+            disabled={isOpeningChat}
+            onClick={() => setChatDeleteTargetId('')}
+            variant="secondary"
+          >
+            Cancel
+          </Button>
+          <Button
+            disabled={!chatDeleteTargetId}
+            onClick={() => void handleDeleteChat(chatDeleteTargetId)}
+            variant="danger"
+          >
+            Delete chat
+          </Button>
+        </footer>
+      </Modal>
     </main>
   )
 }

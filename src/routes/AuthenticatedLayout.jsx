@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { OrganizationSwitcher } from '../features/access-control/components/OrganizationSwitcher.jsx'
 import { useAccessControl } from '../features/access-control/hooks/useAccessControl.js'
 import { useAuth } from '../features/auth/hooks/useAuth.js'
@@ -12,7 +12,7 @@ import {
   isSuperAdminAccess,
 } from '../shared/utils/accessDisplay.js'
 import { Link, NavLink } from './RouterElements.jsx'
-import { useNavigate } from './routerHooks.js'
+import { useLocation, useNavigate } from './routerHooks.js'
 
 function Icon({ className = '', name, size = 18 }) {
   const commonProps = {
@@ -154,7 +154,9 @@ export function AuthenticatedLayout({ children }) {
   const { navLayout, theme, toggleNavLayout, toggleTheme } = useTheme()
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [isSigningOut, setIsSigningOut] = useState(false)
+  const location = useLocation()
   const navigate = useNavigate()
+  const profileMenuRef = useRef(null)
 
   const organizations = access?.organizations ?? []
   const isSuperAdmin = isSuperAdminAccess(user, access)
@@ -204,6 +206,28 @@ export function AuthenticatedLayout({ children }) {
       setIsProfileOpen(false)
     }
   }
+
+  useEffect(() => {
+    if (!isProfileOpen) return undefined
+
+    function handlePointerDown(event) {
+      if (!profileMenuRef.current?.contains(event.target)) {
+        setIsProfileOpen(false)
+      }
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') setIsProfileOpen(false)
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isProfileOpen])
 
   const navigationGroups = [
     {
@@ -263,7 +287,7 @@ export function AuthenticatedLayout({ children }) {
 
   function renderProfileMenu(placement = 'sidebar') {
     return (
-      <div className={`profile-menu profile-menu--${placement}`}>
+      <div className={`profile-menu profile-menu--${placement}`} ref={profileMenuRef}>
         <button
           aria-expanded={isProfileOpen}
           className="profile-button"

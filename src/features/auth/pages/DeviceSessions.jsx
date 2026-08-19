@@ -3,6 +3,7 @@ import { useNavigate } from '../../../routes/routerHooks.js'
 import { Alert } from '../../../shared/components/Alert.jsx'
 import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
+import { Modal } from '../../../shared/components/Modal/Modal.jsx'
 import { useAuth } from '../hooks/useAuth.js'
 import {
   getSessions,
@@ -33,6 +34,7 @@ export function DeviceSessions() {
   const [error, setError] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [message, setMessage] = useState('')
+  const [confirmation, setConfirmation] = useState(null)
   const [workingSessionId, setWorkingSessionId] = useState('')
   const [isSigningOutAll, setIsSigningOutAll] = useState(false)
   const { clearAuthentication, signOutAll } = useAuth()
@@ -64,15 +66,7 @@ export function DeviceSessions() {
     return () => window.clearTimeout(timeoutId)
   }, [message])
 
-  async function handleRevoke(session) {
-    const confirmed = window.confirm(
-      session.isCurrent
-        ? 'Sign out this current device?'
-        : `Sign out ${fallbackDeviceName(session)}?`,
-    )
-
-    if (!confirmed) return
-
+  async function revokeSelectedSession(session) {
     setError(null)
     setWorkingSessionId(session.id)
 
@@ -96,12 +90,11 @@ export function DeviceSessions() {
       setError(requestError)
     } finally {
       setWorkingSessionId('')
+      setConfirmation(null)
     }
   }
 
   async function handleSignOutAll() {
-    if (!window.confirm('Sign out every device, including this one?')) return
-
     setError(null)
     setIsSigningOutAll(true)
 
@@ -115,6 +108,7 @@ export function DeviceSessions() {
       setError(requestError)
     } finally {
       setIsSigningOutAll(false)
+      setConfirmation(null)
     }
   }
 
@@ -127,7 +121,7 @@ export function DeviceSessions() {
         </div>
         <Button
           disabled={isSigningOutAll || isLoading}
-          onClick={handleSignOutAll}
+          onClick={() => setConfirmation({ type: 'all' })}
           variant="danger"
         >
           {isSigningOutAll ? 'Signing out...' : 'Sign out all devices'}
@@ -189,7 +183,7 @@ export function DeviceSessions() {
                 </div>
                 <Button
                   disabled={workingSessionId === session.id}
-                  onClick={() => handleRevoke(session)}
+                  onClick={() => setConfirmation({ session, type: 'single' })}
                   variant="secondary"
                 >
                   {workingSessionId === session.id
@@ -201,6 +195,44 @@ export function DeviceSessions() {
           )}
         </section>
       )}
+
+      <Modal
+        isOpen={Boolean(confirmation)}
+        onClose={() => setConfirmation(null)}
+        title="Confirm sign out"
+      >
+        <div className="modal__body">
+          <p>
+            {confirmation?.type === 'all'
+              ? 'This will sign out every active device, including this one.'
+              : confirmation?.session?.isCurrent
+                ? 'This will sign out the current device.'
+                : `This will sign out ${fallbackDeviceName(
+                    confirmation?.session ?? {},
+                  )}.`}
+          </p>
+        </div>
+        <footer className="modal__actions">
+          <Button
+            disabled={isSigningOutAll || Boolean(workingSessionId)}
+            onClick={() => setConfirmation(null)}
+            variant="secondary"
+          >
+            Cancel
+          </Button>
+          <Button
+            disabled={isSigningOutAll || Boolean(workingSessionId)}
+            onClick={() =>
+              confirmation?.type === 'all'
+                ? handleSignOutAll()
+                : revokeSelectedSession(confirmation.session)
+            }
+            variant="danger"
+          >
+            {isSigningOutAll || workingSessionId ? 'Signing out...' : 'Sign out'}
+          </Button>
+        </footer>
+      </Modal>
     </main>
   )
 }

@@ -11229,3 +11229,37 @@ h6,
   background: rgba(180, 83, 9, 0.2) !important;
   border-color: rgba(251, 191, 36, 0.3) !important;
 }
+
+.app-error-state,
+.access-denied {
+  align-items: center;
+  display: flex;
+  min-height: min(36rem, 70vh);
+  justify-content: center;
+  padding: 2rem;
+}
+
+.app-error-state__card,
+.access-denied__card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-sm);
+  max-width: 34rem;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.app-error-state__card h1,
+.access-denied__card h1 {
+  color: var(--heading);
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  line-height: 1.15;
+  margin: 0.35rem 0 0.75rem;
+}
+
+.app-error-state__card p,
+.access-denied__card p {
+  color: var(--muted);
+  margin: 0 0 1rem;
+}

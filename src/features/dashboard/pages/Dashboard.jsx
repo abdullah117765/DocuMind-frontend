@@ -407,8 +407,8 @@ function RagPipelineChart({ ragStats }) {
   return (
     <div className="dashboard-chart-card">
       <header className="dashboard-chart-header">
-        <h3>AI Indexing Readiness</h3>
-        <span>{totalChunks.toLocaleString()} Qdrant Chunks</span>
+        <h3>AI File Readiness</h3>
+        <span>{totalChunks.toLocaleString()} searchable sections</span>
       </header>
       <div className="doc-pipeline-card">
         <div className="doc-pipeline-progress-bar">
@@ -420,7 +420,7 @@ function RagPipelineChart({ ragStats }) {
           <div
             className="doc-pipeline-segment doc-pipeline-segment--processing"
             style={{ width: `${Math.round((indexing / (ragStats.totalDocs || 1)) * 100)}%` }}
-            title={`Indexing: ${indexing} docs`}
+            title={`Preparing: ${indexing} docs`}
           />
           <div
             className="doc-pipeline-segment doc-pipeline-segment--pending"
@@ -440,7 +440,7 @@ function RagPipelineChart({ ragStats }) {
           </div>
           <div className="doc-pipeline-stat-box">
             <strong style={{ color: '#3b82f6' }}>{indexing}</strong>
-            <small>Indexing</small>
+            <small>Preparing</small>
           </div>
           <div className="doc-pipeline-stat-box">
             <strong style={{ color: '#f59e0b' }}>{pending}</strong>
@@ -462,10 +462,10 @@ function TopChunksChart({ topDocs = [] }) {
       <div className="dashboard-chart-card">
         <header className="dashboard-chart-header">
           <h3>Top AI Knowledge Sources</h3>
-          <span>Qdrant Vectors</span>
+          <span>Searchable content</span>
         </header>
         <p className="dashboard-empty-copy">
-          No documents prepared for AI yet. Index documents to see knowledge chunk distribution.
+          No documents are ready for AI yet. Prepare files to see the most useful sources.
         </p>
       </div>
     )
@@ -475,7 +475,7 @@ function TopChunksChart({ topDocs = [] }) {
     <div className="dashboard-chart-card">
       <header className="dashboard-chart-header">
         <h3>Top AI Knowledge Sources</h3>
-        <span>By Extracted Chunks</span>
+        <span>By searchable content</span>
       </header>
       <div className="doc-ranking-list">
         {topDocs.map((doc) => (
@@ -485,7 +485,7 @@ function TopChunksChart({ topDocs = [] }) {
                 {doc.name}
               </span>
               <span className="doc-ranking-item__metric">
-                {doc.chunksCount} chunks
+                {doc.chunksCount} sections
               </span>
             </div>
             <div className="doc-ranking-item__track">
@@ -917,13 +917,13 @@ export function Dashboard() {
         <StatCard
           icon="sparkle"
           label="AI Readiness"
-          sub={`${ragStats.readinessPercent}% indexed for Ask AI`}
+          sub={`${ragStats.readinessPercent}% ready for Ask AI`}
           value={`${ragStats.readinessPercent}%`}
         />
         <StatCard
           icon="trend"
-          label="Knowledge Chunks"
-          sub="Indexed vectors in Qdrant"
+          label="Searchable Content"
+          sub="Prepared for Ask AI"
           value={ragStats.totalChunks}
         />
         <StatCard

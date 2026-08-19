@@ -614,6 +614,7 @@ function VersionsModal({
             }}
           >
             <input
+              accept={ACCEPTED_FILE_TYPES}
               disabled={isSaving}
               onChange={(event) => setFile(event.target.files?.[0] ?? null)}
               type="file"
