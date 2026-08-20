@@ -9,6 +9,7 @@ import { Profile } from '../features/auth/pages/Profile.jsx'
 import { ResetPassword } from '../features/auth/pages/ResetPassword.jsx'
 import { VerifyEmail } from '../features/auth/pages/VerifyEmail.jsx'
 import { VerifyResetCode } from '../features/auth/pages/VerifyResetCode.jsx'
+import { useAccessControl } from '../features/access-control/hooks/useAccessControl.js'
 import { useAuth } from '../features/auth/hooks/useAuth.js'
 import { Dashboard } from '../features/dashboard/pages/Dashboard.jsx'
 import { DocumentRag } from '../features/documents/pages/DocumentRag.jsx'
@@ -16,9 +17,10 @@ import { Documents } from '../features/documents/pages/Documents.jsx'
 import { KnowledgeBases } from '../features/knowledge-bases/pages/KnowledgeBases.jsx'
 import { AuditLogs } from '../features/users/pages/AuditLogs.jsx'
 import { Loader } from '../shared/components/Loader/Loader.jsx'
+import { isSuperAdminAccess } from '../shared/utils/accessDisplay.js'
 import { AuthenticatedLayout } from './AuthenticatedLayout.jsx'
 import { NotFound } from './NotFound.jsx'
-import { Navigate } from './RouterElements.jsx'
+import { Link, Navigate } from './RouterElements.jsx'
 import { useLocation } from './routerHooks.js'
 
 function FullPageLoader() {
@@ -29,10 +31,47 @@ function FullPageLoader() {
   )
 }
 
+function AccessDenied() {
+  return (
+    <main className="access-denied">
+      <section className="access-denied__card">
+        <p className="eyebrow">Access restricted</p>
+        <h1>You do not have permission to view this page.</h1>
+        <p>
+          If you think you should have access, contact your organization
+          administrator.
+        </p>
+        <Link className="button button--secondary" to="/dashboard">
+          Back to dashboard
+        </Link>
+      </section>
+    </main>
+  )
+}
+
 export function AppRoutes() {
-  const { isAuthenticated, status } = useAuth()
+  const { isAuthenticated, status, user } = useAuth()
+  const {
+    access,
+    hasPermission,
+    hasPlatformPermission,
+    selectedOrganization,
+    status: accessStatus,
+  } = useAccessControl()
   const location = useLocation()
   const pathname = location.pathname.replace(/\/+$/, '') || '/'
+  const isSuperAdmin = isSuperAdminAccess(user, access)
+  const canReadDocuments = hasPermission('documents.read')
+  const canManageMembers = hasPermission('members.manage')
+  const canManageRoles = isSuperAdmin
+  const canViewOrganizationAuditLogs = canManageMembers
+  const canAccessPlatformOrganizations = hasPlatformPermission(
+    'platform.organizations.manage',
+  )
+  const canAccessPlatformUsers = hasPlatformPermission('platform.users.manage')
+  const canAccessAuditLogs = hasPlatformPermission('platform.audit_logs.view')
+  const canAccessPlatformDocuments =
+    isSuperAdmin || hasPlatformPermission('platform.documents.manage')
 
   if (pathname === '/') {
     if (status === 'loading') return <FullPageLoader />
@@ -73,18 +112,42 @@ export function AppRoutes() {
   }
 
   const protectedPages = {
-    '/audit-logs': <AuditLogs />,
-    '/dashboard': <Dashboard />,
-    '/documents': <Documents />,
-    '/knowledge-bases': <KnowledgeBases />,
-    '/documents/search': <DocumentRag />,
-    '/account/profile': <Profile />,
-    '/account/sessions': <DeviceSessions />,
-    '/organization/members': <Members />,
-    '/organization/roles': <Roles />,
-    '/platform/documents': <Documents scope="platform" />,
-    '/platform/organizations': <PlatformOrganizations />,
-    '/platform/users': <Members scope="platform" />,
+    '/audit-logs': {
+      canAccess: canAccessAuditLogs || canViewOrganizationAuditLogs,
+      element: <AuditLogs />,
+    },
+    '/dashboard': { canAccess: true, element: <Dashboard /> },
+    '/documents': {
+      canAccess: Boolean(selectedOrganization && canReadDocuments),
+      element: <Documents />,
+    },
+    '/knowledge-bases': {
+      canAccess: Boolean(selectedOrganization && canReadDocuments),
+      element: <KnowledgeBases />,
+    },
+    '/documents/search': {
+      canAccess: Boolean(selectedOrganization && canReadDocuments),
+      element: <DocumentRag />,
+    },
+    '/account/profile': { canAccess: true, element: <Profile /> },
+    '/account/sessions': { canAccess: true, element: <DeviceSessions /> },
+    '/organization/members': {
+      canAccess: canManageMembers || hasPermission('analytics.view'),
+      element: <Members />,
+    },
+    '/organization/roles': { canAccess: canManageRoles, element: <Roles /> },
+    '/platform/documents': {
+      canAccess: canAccessPlatformDocuments,
+      element: <Documents scope="platform" />,
+    },
+    '/platform/organizations': {
+      canAccess: canAccessPlatformOrganizations,
+      element: <PlatformOrganizations />,
+    },
+    '/platform/users': {
+      canAccess: canAccessPlatformUsers,
+      element: <Members scope="platform" />,
+    },
   }
   const protectedPage = protectedPages[pathname]
 
@@ -95,7 +158,17 @@ export function AppRoutes() {
       return <Navigate replace state={{ from: location }} to="/login" />
     }
 
-    return <AuthenticatedLayout>{protectedPage}</AuthenticatedLayout>
+    if (accessStatus === 'loading') return <FullPageLoader />
+
+    if (!protectedPage.canAccess) {
+      return (
+        <AuthenticatedLayout>
+          <AccessDenied />
+        </AuthenticatedLayout>
+      )
+    }
+
+    return <AuthenticatedLayout>{protectedPage.element}</AuthenticatedLayout>
   }
 
   return <NotFound />

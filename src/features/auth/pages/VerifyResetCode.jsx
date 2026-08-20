@@ -222,7 +222,6 @@ export function VerifyResetCode() {
       <form className="form" onSubmit={handleVerify}>
         <Input
           autoComplete="one-time-code"
-          autoFocus
           className="otp-input"
           error={clientError || fieldErrors.otp}
           inputMode="numeric"

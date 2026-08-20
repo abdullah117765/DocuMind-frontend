@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from './routerHooks.js'
 
 function shouldHandleNavigation(event, target, download) {
@@ -68,10 +68,13 @@ export function NavLink({ className = '', to, ...props }) {
 
 export function Navigate({ replace = false, state, to }) {
   const navigate = useNavigate()
+  const stateRef = useRef(state)
+
+  stateRef.current = state
 
   useEffect(() => {
-    navigate(to, { replace, state })
-  }, [navigate, replace, state, to])
+    navigate(to, { replace, state: stateRef.current })
+  }, [navigate, replace, to])
 
   return null
 }

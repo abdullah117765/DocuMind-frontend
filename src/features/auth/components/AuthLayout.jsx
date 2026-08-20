@@ -5,17 +5,16 @@ function AuthLogoIcon() {
     <svg
       aria-hidden="true"
       fill="none"
-      height="16"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
+      height="18"
       viewBox="0 0 24 24"
-      width="16"
+      width="18"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z" />
-      <path d="M14 2v5h5M9 13h6M9 17h4" />
+      <path
+        d="M12 3L14.2 9.8L21 12L14.2 14.2L12 21L9.8 14.2L3 12L9.8 9.8Z"
+        fill="currentColor"
+      />
+      <circle cx="18" cy="6" r="1.5" fill="currentColor" opacity="0.8" />
     </svg>
   )
 }
@@ -29,17 +28,16 @@ export function AuthLayout({
 }) {
   return (
     <div className={`auth-page${artwork ? ' auth-page--split' : ''}`}>
-      <Link aria-label="DOCUMIND home" className="brand" to="/">
+      <Link aria-label="Idraak AI home" className="brand" to="/">
         <span aria-hidden="true" className="brand__mark">
           <AuthLogoIcon />
         </span>
-        <span>DOCUMIND</span>
+        <span>Idraak AI</span>
       </Link>
 
       <div className="auth-page__content">
         <main className="auth-card">
           <header className="auth-card__header">
-            <p className="eyebrow">Secure account</p>
             <h1>{title}</h1>
             {description && <p>{description}</p>}
           </header>

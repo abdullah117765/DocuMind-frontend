@@ -42,6 +42,28 @@ export function getOrganizationDocumentContentUrl(organizationId, documentId) {
   )}`
 }
 
+export function getOrganizationDocumentVersionContentUrl(
+  organizationId,
+  documentId,
+  versionId,
+) {
+  return `${API_BASE_URL}${organizationDocumentPath(
+    organizationId,
+    `/${encode(documentId)}/versions/${encode(versionId)}/content`,
+  )}`
+}
+
+export function getOrganizationDocumentVersionCitationPreviewUrl(
+  organizationId,
+  documentId,
+  versionId,
+) {
+  return `${API_BASE_URL}${organizationDocumentPath(
+    organizationId,
+    `/${encode(documentId)}/versions/${encode(versionId)}/citation-preview`,
+  )}`
+}
+
 export function getOrganizationDocumentDownloadUrl(organizationId, documentId) {
   return `${API_BASE_URL}${organizationDocumentPath(
     organizationId,
@@ -67,6 +89,18 @@ export function getPlatformDocumentContentUrl(documentId) {
   return `${API_BASE_URL}${platformDocumentPath(`/${encode(documentId)}/content`)}`
 }
 
+export async function getPlatformDocumentPreview(documentId) {
+  const response = await apiRequest(
+    platformDocumentPath(`/${encode(documentId)}/preview`),
+    {
+      cache: 'no-store',
+      requiresAuth: true,
+    },
+  )
+
+  return getResponseData(response).preview
+}
+
 export async function listOrganizationDocuments(organizationId, params = {}) {
   const response = await apiRequest(
     organizationDocumentPath(organizationId, queryString(params)),
@@ -80,23 +114,27 @@ export async function listOrganizationDocuments(organizationId, params = {}) {
 }
 
 export async function searchRagDocuments(organizationId, payload) {
-  const response = await apiRequest(organizationDocumentPath(organizationId, '/rag/search'), {
-    body: payload,
-    cache: 'no-store',
-    method: 'POST',
-    requiresAuth: true,
-  })
+  const response = await csrfRequest(
+    organizationDocumentPath(organizationId, '/rag/search'),
+    {
+      body: payload,
+      method: 'POST',
+      requiresAuth: true,
+    },
+  )
 
   return getResponseData(response)
 }
 
 export async function askRagDocuments(organizationId, payload) {
-  const response = await csrfRequest(organizationDocumentPath(organizationId, '/rag/ask'), {
-    body: payload,
-    cache: 'no-store',
-    method: 'POST',
-    requiresAuth: true,
-  })
+  const response = await csrfRequest(
+    organizationDocumentPath(organizationId, '/rag/ask'),
+    {
+      body: payload,
+      method: 'POST',
+      requiresAuth: true,
+    },
+  )
 
   return getResponseData(response)
 }
@@ -166,18 +204,6 @@ export async function listPlatformDocuments(params = {}) {
 export async function getDocumentPreview(organizationId, documentId) {
   const response = await apiRequest(
     organizationDocumentPath(organizationId, `/${encode(documentId)}/preview`),
-    {
-      cache: 'no-store',
-      requiresAuth: true,
-    },
-  )
-
-  return getResponseData(response).preview
-}
-
-export async function getPlatformDocumentPreview(documentId) {
-  const response = await apiRequest(
-    platformDocumentPath(`/${encode(documentId)}/preview`),
     {
       cache: 'no-store',
       requiresAuth: true,

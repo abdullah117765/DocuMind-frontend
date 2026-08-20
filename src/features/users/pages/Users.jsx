@@ -123,7 +123,6 @@ export function Users() {
     <main className="page page--wide page--platform-users">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Platform administration</p>
           <h1>Users</h1>
           <p>
             Search accounts and control active state without exposing Super
@@ -139,35 +138,36 @@ export function Users() {
 
       {error && <Alert onDismiss={() => setError(null)}>{error.message}</Alert>}
 
-      <section className="card filter-bar">
-        <Input
-          label="Search users"
-          onChange={(event) =>
-            updateFilters({ search: event.target.value })
-          }
-          placeholder="email or organization"
-          value={filters.search}
-        />
-        <label className="field">
-          <span className="field__label">Status</span>
-          <select
-            onChange={(event) =>
-              updateFilters({ status: event.target.value })
-            }
-            value={filters.status}
-          >
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="all">All</option>
-          </select>
-        </label>
-      </section>
-
       <section className="card">
-        <div className="section-heading">
-          <div>
-            <span className="card__label">Directory</span>
-            <h2>{pagination?.total ?? users.length} users</h2>
+        <div className="table-toolbar">
+          <div className="table-toolbar__search">
+            <input
+              aria-label="Search users"
+              className="table-toolbar__input"
+              onChange={(event) =>
+                updateFilters({ search: event.target.value })
+              }
+              placeholder="Search by email or organization..."
+              type="search"
+              value={filters.search}
+            />
+          </div>
+          <div className="table-toolbar__filters">
+            <select
+              aria-label="Filter status"
+              className="table-toolbar__select"
+              onChange={(event) =>
+                updateFilters({ status: event.target.value })
+              }
+              value={filters.status}
+            >
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="all">All</option>
+            </select>
+            <span className="table-toolbar__counter">
+              {pagination?.total ?? users.length} users
+            </span>
           </div>
         </div>
 

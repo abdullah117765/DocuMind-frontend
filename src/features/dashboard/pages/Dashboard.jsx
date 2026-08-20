@@ -17,6 +17,7 @@ import {
 import { useAccessControl } from '../../access-control/hooks/useAccessControl.js'
 import { useAuth } from '../../auth/hooks/useAuth.js'
 import {
+  getRagDocumentStatuses,
   listOrganizationDocuments,
   listPlatformDocuments,
 } from '../../documents/services/documentsApi.js'
@@ -64,6 +65,11 @@ function DashboardIcon({ name }) {
         <>
           <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z" {...commonProps} />
           <path d="M14 2v5h5M9 13h6M9 17h4" {...commonProps} />
+        </>
+      )}
+      {name === 'sparkle' && (
+        <>
+          <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z" {...commonProps} />
         </>
       )}
       {name === 'search' && (
@@ -116,7 +122,7 @@ function formatDate(value) {
 function getStatusTone(status) {
   const normalized = String(status ?? '').toLowerCase()
 
-  if (['processed', 'active', 'success', 'accepted'].includes(normalized)) {
+  if (['processed', 'active', 'success', 'accepted', 'indexed'].includes(normalized)) {
     return 'success'
   }
 
@@ -147,6 +153,153 @@ function getInitials(label) {
     .toUpperCase()
 }
 
+// --------------------------------------------------------------------------
+// Analytics Computation Helpers
+// --------------------------------------------------------------------------
+
+function computeUploadActivity(documents = []) {
+  const days = []
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  for (let i = 6; i >= 0; i -= 1) {
+    const d = new Date(today)
+    d.setDate(d.getDate() - i)
+    const dayLabel = d.toLocaleDateString(undefined, { weekday: 'short' })
+    const dateKey = d.toISOString().slice(0, 10)
+    days.push({ dayLabel, dateKey, count: 0 })
+  }
+
+  documents.forEach((doc) => {
+    if (!doc?.createdAt) return
+    const docDateKey = new Date(doc.createdAt).toISOString().slice(0, 10)
+    const day = days.find((item) => item.dateKey === docDateKey)
+    if (day) day.count += 1
+  })
+
+  const maxCount = Math.max(...days.map((d) => d.count), 1)
+
+  return days.map((day) => ({
+    ...day,
+    percent: (day.count / maxCount) * 100,
+    isPeak: day.count > 0 && day.count === maxCount,
+  }))
+}
+
+function computeFormatBreakdown(documents = []) {
+  const groups = {
+    pdf: { label: 'PDF', count: 0, size: 0, className: 'doc-format-segment--pdf', dotColor: '#ef4444' },
+    docx: { label: 'DOCX / Word', count: 0, size: 0, className: 'doc-format-segment--docx', dotColor: '#3b82f6' },
+    xlsx: { label: 'XLSX / Sheets', count: 0, size: 0, className: 'doc-format-segment--xlsx', dotColor: '#10b981' },
+    pptx: { label: 'PPTX / Slides', count: 0, size: 0, className: 'doc-format-segment--pptx', dotColor: '#f97316' },
+    txt: { label: 'TXT / Code', count: 0, size: 0, className: 'doc-format-segment--txt', dotColor: '#8b5cf6' },
+    other: { label: 'Other', count: 0, size: 0, className: 'doc-format-segment--other', dotColor: '#64748b' },
+  }
+
+  documents.forEach((doc) => {
+    const ext = String(doc.extension ?? '').toLowerCase().replace('.', '')
+    const size = Number(doc.sizeBytes) || 0
+
+    if (ext === 'pdf') {
+      groups.pdf.count += 1
+      groups.pdf.size += size
+    } else if (['docx', 'doc'].includes(ext)) {
+      groups.docx.count += 1
+      groups.docx.size += size
+    } else if (['xlsx', 'xls', 'csv'].includes(ext)) {
+      groups.xlsx.count += 1
+      groups.xlsx.size += size
+    } else if (['pptx', 'ppt'].includes(ext)) {
+      groups.pptx.count += 1
+      groups.pptx.size += size
+    } else if (['txt', 'json', 'xml', 'html'].includes(ext)) {
+      groups.txt.count += 1
+      groups.txt.size += size
+    } else {
+      groups.other.count += 1
+      groups.other.size += size
+    }
+  })
+
+  const total = documents.length || 1
+
+  return Object.values(groups)
+    .filter((g) => g.count > 0)
+    .map((g) => ({
+      ...g,
+      percent: Math.round((g.count / total) * 100),
+    }))
+}
+
+function computeRagStats(documents = [], ragStatuses = []) {
+  const statusMap = new Map(ragStatuses.map((s) => [s.documentId, s]))
+  let indexed = 0
+  let indexing = 0
+  let pending = 0
+  let failed = 0
+  let totalChunks = 0
+
+  documents.forEach((doc) => {
+    const rStatus = statusMap.get(doc.id)
+    const status = String(rStatus?.status ?? 'NOT_INDEXED').toUpperCase()
+    totalChunks += Number(rStatus?.chunksCount) || 0
+
+    if (status === 'INDEXED') {
+      indexed += 1
+    } else if (status === 'INDEXING') {
+      indexing += 1
+    } else if (status === 'PENDING') {
+      pending += 1
+    } else if (status === 'FAILED') {
+      failed += 1
+    } else {
+      pending += 1
+    }
+  })
+
+  const total = documents.length || 1
+  const readinessPercent = Math.round((indexed / total) * 100)
+
+  return {
+    totalDocs: documents.length,
+    indexed,
+    indexing,
+    pending,
+    failed,
+    totalChunks,
+    readinessPercent,
+  }
+}
+
+function computeTopChunkDocuments(documents = [], ragStatuses = []) {
+  const statusMap = new Map(ragStatuses.map((s) => [s.documentId, s]))
+
+  const ranked = documents
+    .map((doc) => {
+      const rStatus = statusMap.get(doc.id)
+      return {
+        id: doc.id,
+        name: doc.name || doc.originalFilename || 'Document',
+        chunksCount: Number(rStatus?.chunksCount) || 0,
+        extension: (doc.extension || 'doc').toUpperCase(),
+      }
+    })
+    .filter((doc) => doc.chunksCount > 0)
+    .sort((a, b) => b.chunksCount - a.chunksCount)
+    .slice(0, 5)
+
+  const maxChunks = ranked[0]?.chunksCount || 1
+
+  return ranked.map((doc) => ({
+    ...doc,
+    percent: Math.round((doc.chunksCount / maxChunks) * 100),
+  }))
+}
+
+// --------------------------------------------------------------------------
+// Sub-Components
+// --------------------------------------------------------------------------
+
 function StatCard({ icon, label, sub, value }) {
   return (
     <article className="dashboard-stat-card">
@@ -173,6 +326,178 @@ function DashboardPanel({ children, linkTo, title }) {
       </header>
       {children}
     </section>
+  )
+}
+
+function UploadActivityGraph({ days = [] }) {
+  const totalUploaded = days.reduce((sum, d) => sum + d.count, 0)
+
+  return (
+    <div className="dashboard-chart-card">
+      <header className="dashboard-chart-header">
+        <h3>Upload Activity (Last 7 Days)</h3>
+        <span>{totalUploaded} uploaded this week</span>
+      </header>
+      <div className="doc-upload-chart">
+        <div className="doc-upload-bars">
+          {days.map((d) => (
+            <div className="doc-upload-bar-group" key={d.dateKey}>
+              {d.count > 0 && (
+                <span className="doc-upload-count-tag">{d.count}</span>
+              )}
+              <div className="doc-upload-bar-track">
+                <div
+                  className={`doc-upload-bar-fill ${
+                    d.isPeak ? 'doc-upload-bar-fill--peak' : ''
+                  } ${d.count === 0 ? 'doc-upload-bar-fill--empty' : ''}`}
+                  style={{ height: `${Math.max(d.percent, 4)}%` }}
+                  title={`${d.dayLabel}: ${d.count} documents`}
+                />
+              </div>
+              <span className="doc-upload-day-label">{d.dayLabel}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FormatBreakdownChart({ formats = [] }) {
+  return (
+    <div className="dashboard-chart-card">
+      <header className="dashboard-chart-header">
+        <h3>Document Format Distribution</h3>
+        <span>{formats.length} formats stored</span>
+      </header>
+      <div className="doc-format-summary">
+        <div className="doc-format-segment-bar">
+          {formats.map((f) => (
+            <div
+              className={`doc-format-segment ${f.className}`}
+              key={f.label}
+              style={{ width: `${f.percent}%` }}
+              title={`${f.label}: ${f.count} documents (${f.percent}%)`}
+            />
+          ))}
+        </div>
+        <div className="doc-format-legend-grid">
+          {formats.map((f) => (
+            <div className="doc-format-legend-item" key={f.label}>
+              <span
+                className="doc-format-legend-dot"
+                style={{ background: f.dotColor }}
+              />
+              <span>{f.label}</span>
+              <strong>
+                {f.count} ({f.percent}%)
+              </strong>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RagPipelineChart({ ragStats }) {
+  const { failed, indexed, indexing, pending, readinessPercent, totalChunks } =
+    ragStats
+
+  return (
+    <div className="dashboard-chart-card">
+      <header className="dashboard-chart-header">
+        <h3>AI File Readiness</h3>
+        <span>{totalChunks.toLocaleString()} searchable sections</span>
+      </header>
+      <div className="doc-pipeline-card">
+        <div className="doc-pipeline-progress-bar">
+          <div
+            className="doc-pipeline-segment doc-pipeline-segment--ready"
+            style={{ width: `${readinessPercent}%` }}
+            title={`Ready: ${indexed} docs (${readinessPercent}%)`}
+          />
+          <div
+            className="doc-pipeline-segment doc-pipeline-segment--processing"
+            style={{ width: `${Math.round((indexing / (ragStats.totalDocs || 1)) * 100)}%` }}
+            title={`Preparing: ${indexing} docs`}
+          />
+          <div
+            className="doc-pipeline-segment doc-pipeline-segment--pending"
+            style={{ width: `${Math.round((pending / (ragStats.totalDocs || 1)) * 100)}%` }}
+            title={`Pending: ${pending} docs`}
+          />
+          <div
+            className="doc-pipeline-segment doc-pipeline-segment--failed"
+            style={{ width: `${Math.round((failed / (ragStats.totalDocs || 1)) * 100)}%` }}
+            title={`Failed: ${failed} docs`}
+          />
+        </div>
+        <div className="doc-pipeline-stats-row">
+          <div className="doc-pipeline-stat-box">
+            <strong style={{ color: '#10b981' }}>{indexed}</strong>
+            <small>Ready (AI)</small>
+          </div>
+          <div className="doc-pipeline-stat-box">
+            <strong style={{ color: '#3b82f6' }}>{indexing}</strong>
+            <small>Preparing</small>
+          </div>
+          <div className="doc-pipeline-stat-box">
+            <strong style={{ color: '#f59e0b' }}>{pending}</strong>
+            <small>Pending</small>
+          </div>
+          <div className="doc-pipeline-stat-box">
+            <strong style={{ color: '#ef4444' }}>{failed}</strong>
+            <small>Unprepared</small>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TopChunksChart({ topDocs = [] }) {
+  if (!topDocs.length) {
+    return (
+      <div className="dashboard-chart-card">
+        <header className="dashboard-chart-header">
+          <h3>Top AI Knowledge Sources</h3>
+          <span>Searchable content</span>
+        </header>
+        <p className="dashboard-empty-copy">
+          No documents are ready for AI yet. Prepare files to see the most useful sources.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="dashboard-chart-card">
+      <header className="dashboard-chart-header">
+        <h3>Top AI Knowledge Sources</h3>
+        <span>By searchable content</span>
+      </header>
+      <div className="doc-ranking-list">
+        {topDocs.map((doc) => (
+          <div className="doc-ranking-item" key={doc.id}>
+            <div className="doc-ranking-item__info">
+              <span className="doc-ranking-item__name" title={doc.name}>
+                {doc.name}
+              </span>
+              <span className="doc-ranking-item__metric">
+                {doc.chunksCount} sections
+              </span>
+            </div>
+            <div className="doc-ranking-item__track">
+              <div
+                className="doc-ranking-item__fill"
+                style={{ width: `${doc.percent}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -243,6 +568,10 @@ function DocumentList({ documents }) {
   )
 }
 
+// --------------------------------------------------------------------------
+// Main Dashboard Component
+// --------------------------------------------------------------------------
+
 export function Dashboard() {
   const {
     access,
@@ -260,6 +589,7 @@ export function Dashboard() {
     invites: [],
     members: [],
     organizations: [],
+    ragStatuses: [],
     totalDocuments: null,
     totalUsers: null,
   })
@@ -295,6 +625,7 @@ export function Dashboard() {
       invites: [],
       members: [],
       organizations: [],
+      ragStatuses: [],
       totalDocuments: null,
       totalOrganizations: null,
       totalUsers: null,
@@ -310,7 +641,7 @@ export function Dashboard() {
             ? getUsers({ page: 1, pageSize: 5, status: 'all' })
             : Promise.resolve({ pagination: null, users: [] }),
           canViewPlatformDocuments
-            ? listPlatformDocuments({ page: 1, pageSize: 5 })
+            ? listPlatformDocuments({ page: 1, pageSize: 100 })
             : Promise.resolve({ documents: [], pagination: null }),
           canViewPlatformAudit
             ? getAuditLogs({ page: 1, pageSize: 5 })
@@ -349,11 +680,14 @@ export function Dashboard() {
             ? getOrganizationInvites(organizationId, { page: 1, pageSize: 100 })
             : Promise.resolve({ invites: [], pagination: null }),
           canReadDocuments
-            ? listOrganizationDocuments(organizationId, { page: 1, pageSize: 5 })
+            ? listOrganizationDocuments(organizationId, { page: 1, pageSize: 100 })
             : Promise.resolve({ documents: [], pagination: null }),
           canManageMembers
             ? getAuditLogs({ organizationId, page: 1, pageSize: 5 })
             : Promise.resolve({ logs: [], pagination: null }),
+          canReadDocuments
+            ? getRagDocumentStatuses(organizationId)
+            : Promise.resolve([]),
         ])
 
         if (requests[0].status === 'fulfilled') {
@@ -372,6 +706,10 @@ export function Dashboard() {
 
         if (requests[3].status === 'fulfilled') {
           nextState.auditLogs = requests[3].value?.logs ?? []
+        }
+
+        if (requests[4].status === 'fulfilled') {
+          nextState.ragStatuses = requests[4].value ?? []
         }
       }
 
@@ -397,6 +735,28 @@ export function Dashboard() {
     void loadDashboard()
   }, [loadDashboard])
 
+  // Analytics derivations
+  const uploadActivity = useMemo(
+    () => computeUploadActivity(dashboardState.documents),
+    [dashboardState.documents],
+  )
+  const formatBreakdown = useMemo(
+    () => computeFormatBreakdown(dashboardState.documents),
+    [dashboardState.documents],
+  )
+  const ragStats = useMemo(
+    () => computeRagStats(dashboardState.documents, dashboardState.ragStatuses),
+    [dashboardState.documents, dashboardState.ragStatuses],
+  )
+  const topChunkDocs = useMemo(
+    () =>
+      computeTopChunkDocuments(
+        dashboardState.documents,
+        dashboardState.ragStatuses,
+      ),
+    [dashboardState.documents, dashboardState.ragStatuses],
+  )
+
   if (status === 'loading' || status === 'idle') {
     return (
       <main className="page">
@@ -411,9 +771,6 @@ export function Dashboard() {
   const suspendedOrganizations = dashboardState.organizations.filter(
     (organization) => String(organization.status).toUpperCase() === 'SUSPENDED',
   ).length
-  const recentActiveDocuments = dashboardState.documents.filter(
-    (document) => String(document.status).toUpperCase() === 'ACTIVE',
-  ).length
   const pendingInvites = dashboardState.invites.filter(
     (invite) => String(invite.status).toUpperCase() === 'PENDING',
   ).length
@@ -424,7 +781,7 @@ export function Dashboard() {
         <header className="page-header">
           <div>
             <h1>Platform Dashboard</h1>
-            <p>Overview of all organizations and platform activity.</p>
+            <p>Overview of all platform organizations, documents, and infrastructure.</p>
           </div>
           <RefreshIconButton
             disabled={isLoading}
@@ -460,14 +817,16 @@ export function Dashboard() {
           />
           <StatCard
             icon="file"
-            label="Documents Stored"
-            sub={
-              dashboardState.totalDocuments === null
-                ? ''
-                : `${recentActiveDocuments} recent active`
-            }
+            label="Total Documents"
+            sub={`${dashboardState.documents.length} across platform`}
             value={dashboardState.totalDocuments}
           />
+        </section>
+
+        {/* Document Analytics Charts */}
+        <section className="dashboard-analytics-grid">
+          <UploadActivityGraph days={uploadActivity} />
+          <FormatBreakdownChart formats={formatBreakdown} />
         </section>
 
         <section className="card dashboard-quick-actions">
@@ -476,16 +835,9 @@ export function Dashboard() {
             <Link className="button button--primary button--link" to="/platform/organizations">
               <DashboardIcon name="plus" /> Organization
             </Link>
-            {selectedOrganization && canReadDocuments && (
-              <Link className="button button--secondary button--link" to="/documents">
-                Upload
-              </Link>
-            )}
-            {selectedOrganization && canReadDocuments && (
-              <Link className="button button--secondary button--link" to="/documents/search">
-                <DashboardIcon name="search" /> Ask
-              </Link>
-            )}
+            <Link className="button button--secondary button--link" to="/platform/documents">
+              Manage Documents
+            </Link>
             <Link className="button button--secondary button--link" to="/audit-logs">
               Audit Logs
             </Link>
@@ -535,14 +887,8 @@ export function Dashboard() {
         <div>
           <h1>{selectedOrganization.organization.name} Dashboard</h1>
           <p className="dashboard-page__subtitle">
-            Your organization overview{currentRoleName ? ` · ${currentRoleName}` : ''}.
-          </p>
-          <p>
-            Your organization overview{currentRoleName ? ` · ${currentRoleName}` : ''}.
-          </p>
-          <p hidden>
-            Your organization overview
-            {currentRoleName ? ` · ${currentRoleName}` : ''}.
+            Document Intelligence & Organization Overview
+            {currentRoleName ? ` · Role: ${currentRoleName}` : ''}
           </p>
         </div>
         <RefreshIconButton
@@ -560,67 +906,84 @@ export function Dashboard() {
 
       {isLoading && <Loader label="Refreshing dashboard..." />}
 
+      {/* Top Metric Cards */}
       <section className="metric-grid dashboard-metric-grid">
         <StatCard
-          icon="users"
-          label="Members"
-          value={canManageMembers ? dashboardState.members.length : null}
-        />
-        <StatCard
-          icon="trend"
-          label="Pending Invites"
-          value={canManageMembers ? pendingInvites : null}
-        />
-        <StatCard
           icon="file"
-          label="Documents"
+          label="Accessible Documents"
+          sub={`${dashboardState.documents.length} files in scope`}
           value={dashboardState.totalDocuments}
         />
         <StatCard
-          icon="clock"
-          label="Recent Events"
-          sub="Latest audit records"
-          value={canManageMembers ? dashboardState.auditLogs.length : null}
+          icon="sparkle"
+          label="AI Readiness"
+          sub={`${ragStats.readinessPercent}% ready for Ask AI`}
+          value={`${ragStats.readinessPercent}%`}
+        />
+        <StatCard
+          icon="trend"
+          label="Searchable Content"
+          sub="Prepared for Ask AI"
+          value={ragStats.totalChunks}
+        />
+        <StatCard
+          icon="users"
+          label="Team Members"
+          value={canManageMembers ? dashboardState.members.length : 1}
         />
       </section>
 
+      {/* Primary Document Analytics Charts */}
+      <section className="dashboard-analytics-grid">
+        <UploadActivityGraph days={uploadActivity} />
+        <FormatBreakdownChart formats={formatBreakdown} />
+      </section>
+
+      {/* Secondary AI & Vector Knowledge Analytics */}
+      <section className="dashboard-analytics-grid">
+        <RagPipelineChart ragStats={ragStats} />
+        <TopChunksChart topDocs={topChunkDocs} />
+      </section>
+
+      {/* Quick Actions */}
       <section className="card dashboard-quick-actions">
         <h2>Quick Actions</h2>
         <div className="inline-actions">
-          {canManageMembers && (
-            <Link
-              className="button button--primary button--link"
-              to="/organization/members"
-            >
-              <DashboardIcon name="plus" /> Invite
-            </Link>
-          )}
           {canReadDocuments && (
-            <Link className="button button--secondary button--link" to="/documents">
-              Upload
+            <Link className="button button--primary button--link" to="/documents">
+              <DashboardIcon name="plus" /> Upload Document
             </Link>
           )}
           {canReadDocuments && (
             <Link className="button button--secondary button--link" to="/documents/search">
-              <DashboardIcon name="search" /> Ask
+              <DashboardIcon name="search" /> Ask AI
+            </Link>
+          )}
+          {canManageMembers && (
+            <Link
+              className="button button--secondary button--link"
+              to="/organization/members"
+            >
+              <DashboardIcon name="users" /> Manage Members
             </Link>
           )}
           <Link className="button button--secondary button--link" to="/account/sessions">
-            Devices
+            Active Devices
           </Link>
         </div>
       </section>
 
+      {/* Activity & Document Rows */}
       <section className="dashboard-panel-grid">
         <DashboardPanel
           linkTo={canReadDocuments ? '/documents' : ''}
-          title="Recent Document Uploads"
+          title="Recent Documents"
         >
           <DocumentList documents={dashboardState.documents} />
         </DashboardPanel>
         <DashboardPanel
           linkTo={canManageMembers ? '/audit-logs' : ''}
-          title="Recent Audit Activity"
+          title="Recent Activity"
         >
           <AuditList logs={dashboardState.auditLogs} />
         </DashboardPanel>
@@ -628,3 +991,4 @@ export function Dashboard() {
     </main>
   )
 }
+

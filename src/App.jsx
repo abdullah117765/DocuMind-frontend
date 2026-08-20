@@ -5,6 +5,7 @@ import { NetworkStatusMonitor } from './shared/NetworkStatusMonitor.jsx'
 import { RouterProvider } from './routes/RouterProvider.jsx'
 import { NotificationProvider } from './shared/NotificationProvider.jsx'
 import { ThemeProvider } from './shared/ThemeProvider.jsx'
+import { ErrorBoundary } from './shared/components/ErrorBoundary.jsx'
 
 export function App() {
   return (
@@ -14,7 +15,9 @@ export function App() {
         <RouterProvider>
           <AuthProvider>
             <AccessControlProvider>
-              <AppRoutes />
+              <ErrorBoundary>
+                <AppRoutes />
+              </ErrorBoundary>
             </AccessControlProvider>
           </AuthProvider>
         </RouterProvider>

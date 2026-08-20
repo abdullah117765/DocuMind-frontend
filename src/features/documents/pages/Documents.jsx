@@ -11,8 +11,12 @@ import { emitNetworkError } from '../../../shared/networkEvents.js'
 import { useAccessControl } from '../../access-control/hooks/useAccessControl.js'
 import { useAuth } from '../../auth/hooks/useAuth.js'
 import {
+  createKnowledgeBase,
+  createKnowledgeBaseCollection,
+  createKnowledgeBaseTag,
   listKnowledgeBaseCollections,
   listKnowledgeBases,
+  listKnowledgeBaseTags,
 } from '../../knowledge-bases/services/knowledgeBasesApi.js'
 import {
   commitUploadSession,
@@ -21,8 +25,8 @@ import {
   getDocumentVersions,
   getOrganizationDocumentContentUrl,
   getOrganizationDocumentDownloadUrl,
-  getPlatformDocumentPreview,
   getPlatformDocumentContentUrl,
+  getPlatformDocumentPreview,
   getStagedFileContentUrl,
   getUploadJobEventsUrl,
   getZipManifest,
@@ -65,7 +69,7 @@ const ACCEPTED_FILE_TYPES = ALLOWED_EXTENSIONS.map(
 const DOCUMENT_STATUS_LABELS = {
   ACTIVE: 'active',
   PURGED: 'purged',
-  SOFT_DELETED_BY_ORG: 'organization deleted',
+  SOFT_DELETED_BY_ORG: 'org deleted',
   SOFT_DELETED_BY_USER: 'user deleted',
 }
 const HIDDEN_STAGED_FILE_STATUSES = new Set(['COMMITTED', 'REMOVED'])
@@ -251,21 +255,16 @@ function getDocumentErrorMessage(error, fallback) {
     'backend',
     'content endpoint',
     'conversion worker',
-    'embedding',
-    'image text extraction failed',
-    'indexing',
     'job',
     'libreoffice',
     'metadata',
     'preview metadata',
     'processing',
-    'pymupdf',
     'queue',
     'queued',
     'serviceunavailable',
     'soft-delete',
     'storage',
-    'tesseract',
     'worker',
   ]
 
@@ -369,45 +368,7 @@ function isPdfMime(mimeType = '') {
   return mimeType === 'application/pdf'
 }
 
-function isBinaryInlinePreview(preview, mimeType = '') {
-  const previewMimeType = preview?.mimeType || mimeType
-
-  return (
-    preview?.kind === 'binary' &&
-    preview.previewAvailable &&
-    (isImageMime(previewMimeType) || isPdfMime(previewMimeType))
-  )
-}
-
-function getFriendlyDocumentType(document = {}) {
-  const extension = String(document.extension ?? '').toLowerCase()
-  const labels = {
-    csv: 'Spreadsheet',
-    doc: 'Word document',
-    docx: 'Word document',
-    html: 'Web document',
-    jpeg: 'Image',
-    jpg: 'Image',
-    json: 'JSON file',
-    pdf: 'PDF document',
-    png: 'Image',
-    ppt: 'PowerPoint',
-    pptx: 'PowerPoint',
-    txt: 'Text file',
-    xlsx: 'Spreadsheet',
-    xml: 'XML file',
-    zip: 'Archive',
-  }
-
-  return labels[extension] ?? 'File'
-}
-
-function renderPreviewBody(
-  preview,
-  contentUrl,
-  mimeType,
-  { binaryError = '', isBinaryLoading = false } = {},
-) {
+function renderPreviewBody(preview, contentUrl, mimeType, binaryState = {}) {
   if (!preview) {
     return (
       <section className="empty-state empty-state--compact">
@@ -420,18 +381,23 @@ function renderPreviewBody(
   }
 
   if (preview.kind === 'binary' && preview.previewAvailable) {
-    if (binaryError) {
-      return <Alert tone="warning">{binaryError}</Alert>
+    if (binaryState.loading) {
+      return <Loader label="Loading preview..." />
     }
 
-    if (isBinaryLoading) {
-      return <Loader label="Opening preview..." />
+    if (binaryState.error) {
+      return (
+        <Alert tone="warning">
+          We could not load the inline preview. Open the file in a new tab or
+          download it to view it.
+        </Alert>
+      )
     }
 
     if (!contentUrl) {
       return (
         <Alert tone="warning">
-          We could not open the preview. Download the file to view it.
+          Preview is not available right now. Try again in a moment.
         </Alert>
       )
     }
@@ -512,61 +478,76 @@ function renderPreviewBody(
 }
 
 function DocumentPreviewModal({ item, onClose }) {
-  const [binaryError, setBinaryError] = useState('')
-  const [binaryObjectUrl, setBinaryObjectUrl] = useState('')
+  const [blobUrl, setBlobUrl] = useState('')
+  const [blobError, setBlobError] = useState(null)
+  const [blobLoading, setBlobLoading] = useState(false)
 
   useEffect(() => {
-    let active = true
-    let createdObjectUrl = ''
-
-    setBinaryError('')
-    setBinaryObjectUrl('')
-
-    if (!item?.contentUrl || !isBinaryInlinePreview(item.preview, item.mimeType)) {
+    if (
+      !item?.contentUrl ||
+      item.preview?.kind !== 'binary' ||
+      !item.preview?.previewAvailable
+    ) {
+      setBlobUrl('')
+      setBlobError(null)
+      setBlobLoading(false)
       return undefined
     }
 
+    let isActive = true
+    let objectUrl = ''
     const controller = new AbortController()
 
-    fetch(item.contentUrl, {
-      cache: 'no-store',
-      credentials: 'include',
-      signal: controller.signal,
-    })
-      .then((response) => {
+    async function loadBinaryPreview() {
+      setBlobLoading(true)
+      setBlobError(null)
+
+      try {
+        const response = await fetch(item.contentUrl, {
+          credentials: 'include',
+          signal: controller.signal,
+        })
+
         if (!response.ok) {
-          throw new Error('Preview request failed')
+          throw new Error('Preview request failed.')
         }
 
-        return response.blob()
-      })
-      .then((blob) => {
-        if (!active) return
+        const blob = await response.blob()
+        objectUrl = URL.createObjectURL(blob)
 
-        createdObjectUrl = URL.createObjectURL(blob)
-        setBinaryObjectUrl(createdObjectUrl)
-      })
-      .catch((error) => {
-        if (!active || error?.name === 'AbortError') return
-
-        setBinaryError(
-          'We could not open the preview. Download the file to view it.',
-        )
-      })
-
-    return () => {
-      active = false
-      controller.abort()
-
-      if (createdObjectUrl) {
-        URL.revokeObjectURL(createdObjectUrl)
+        if (isActive) {
+          setBlobUrl(objectUrl)
+        } else {
+          URL.revokeObjectURL(objectUrl)
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return
+        if (isActive) {
+          setBlobError(error)
+          setBlobUrl('')
+        }
+      } finally {
+        if (isActive) {
+          setBlobLoading(false)
+        }
       }
     }
-  }, [item?.contentUrl, item?.id, item?.mimeType, item?.preview])
+
+    void loadBinaryPreview()
+
+    return () => {
+      isActive = false
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [item?.contentUrl, item?.preview?.kind, item?.preview?.previewAvailable])
 
   if (!item) return null
 
-  const shouldLoadBinaryPreview = isBinaryInlinePreview(item.preview, item.mimeType)
+  const previewContentUrl =
+    item.preview?.kind === 'binary' && item.preview?.previewAvailable
+      ? blobUrl
+      : item.contentUrl
 
   return (
     <Modal isOpen={Boolean(item)} onClose={onClose} title={getPreviewTitle(item)}>
@@ -587,16 +568,10 @@ function DocumentPreviewModal({ item, onClose }) {
             </a>
           )}
         </div>
-        {renderPreviewBody(
-          item.preview,
-          shouldLoadBinaryPreview ? binaryObjectUrl : item.contentUrl,
-          item.mimeType,
-          {
-            binaryError,
-            isBinaryLoading:
-              shouldLoadBinaryPreview && !binaryObjectUrl && !binaryError,
-          },
-        )}
+        {renderPreviewBody(item.preview, previewContentUrl, item.mimeType, {
+          error: blobError,
+          loading: blobLoading,
+        })}
       </div>
     </Modal>
   )
@@ -639,6 +614,7 @@ function VersionsModal({
             }}
           >
             <input
+              accept={ACCEPTED_FILE_TYPES}
               disabled={isSaving}
               onChange={(event) => setFile(event.target.files?.[0] ?? null)}
               type="file"
@@ -849,6 +825,254 @@ function UploadSessionCard({
   )
 }
 
+function UploadLocationModal({
+  collectionId,
+  collections,
+  collectionCreateError,
+  collectionCreateName,
+  createError,
+  createName,
+  isCreatingCollection,
+  isCreatingKnowledgeBase,
+  isCreatingTag,
+  isLoading,
+  isOpen,
+  isSaving,
+  knowledgeBaseId,
+  knowledgeBases,
+  newTagName,
+  onChangeCollection,
+  onChangeCollectionCreateName,
+  onChangeCreateName,
+  onChangeKnowledgeBase,
+  onChangeNewTagName,
+  onCreateKnowledgeBase,
+  onCreateCollection,
+  onCreateTag,
+  onClose,
+  onSave,
+  onToggleTag,
+  selectedTagIds,
+  stagedCount,
+  tags,
+  tagCreateError,
+}) {
+  const [mode, setMode] = useState('existing')
+  const canSave =
+    Boolean(knowledgeBaseId) &&
+    !isSaving &&
+    !isCreatingKnowledgeBase &&
+    !isCreatingCollection &&
+    !isCreatingTag
+  const canCreate = createName.trim().length >= 2 && !isCreatingKnowledgeBase && !isSaving
+  const canCreateCollection =
+    Boolean(knowledgeBaseId) &&
+    collectionCreateName.trim().length >= 2 &&
+    !isCreatingCollection &&
+    !isSaving
+  const canCreateTag = newTagName.trim().length >= 2 && !isCreatingTag && !isSaving
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Choose where to save files">
+      <div className="upload-location-modal">
+        <p className="muted-copy">
+          {stagedCount} file{stagedCount === 1 ? '' : 's'} ready. Select a
+          Knowledge Base, and optionally a Collection, before saving.
+        </p>
+
+        <div className="upload-location-modal__choice" role="tablist" aria-label="Knowledge Base choice">
+          <button
+            aria-selected={mode === 'existing'}
+            className={mode === 'existing' ? 'active' : ''}
+            disabled={isSaving || isCreatingKnowledgeBase}
+            onClick={() => setMode('existing')}
+            type="button"
+          >
+            Existing Knowledge Base
+          </button>
+          <button
+            aria-selected={mode === 'new'}
+            className={mode === 'new' ? 'active' : ''}
+            disabled={isSaving || isCreatingKnowledgeBase}
+            onClick={() => setMode('new')}
+            type="button"
+          >
+            Create new Knowledge Base
+          </button>
+        </div>
+
+        {mode === 'new' && (
+          <div className="upload-location-modal__create">
+            <label className="field">
+              <span>New Knowledge Base name</span>
+              <input
+                disabled={isSaving || isCreatingKnowledgeBase}
+                maxLength={120}
+                onChange={(event) => onChangeCreateName(event.target.value)}
+                placeholder="Example: HR Policies"
+                value={createName}
+              />
+              <small className="muted-copy">Letters, numbers, and single spaces only.</small>
+            </label>
+            {createError && (
+              <p className="field-error" role="alert">
+                {createError}
+              </p>
+            )}
+            <Button disabled={!canCreate} onClick={onCreateKnowledgeBase} variant="secondary">
+              {isCreatingKnowledgeBase ? 'Creating...' : 'Create and select'}
+            </Button>
+          </div>
+        )}
+
+        {mode === 'existing' ? (
+          <label className="field">
+            <span>Knowledge Base</span>
+            <select
+              disabled={isLoading || isSaving}
+              onChange={(event) => {
+                onChangeKnowledgeBase(event.target.value)
+                onChangeCollection('')
+              }}
+              value={knowledgeBaseId}
+            >
+              <option value="">
+                {isLoading ? 'Loading...' : 'Select Knowledge Base'}
+              </option>
+              {knowledgeBases.map((knowledgeBase) => (
+                <option key={knowledgeBase.id} value={knowledgeBase.id}>
+                  {knowledgeBase.name}
+                  {knowledgeBase.isDefault ? ' (default)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <div className="upload-location-modal__selected">
+            <span>Selected Knowledge Base</span>
+            <strong>
+              {knowledgeBases.find((knowledgeBase) => knowledgeBase.id === knowledgeBaseId)
+                ?.name ?? 'Create a Knowledge Base to continue'}
+            </strong>
+          </div>
+        )}
+
+        {knowledgeBaseId && (
+          <div className="upload-location-modal__section">
+            <div className="upload-location-modal__section-header">
+              <div>
+                <strong>Collection</strong>
+                <p className="muted-copy">Optional. Use a collection to group related documents.</p>
+              </div>
+            </div>
+
+            <div className="upload-location-modal__grid">
+              <label className="field">
+                <span>Choose collection</span>
+                <select
+                  disabled={isSaving || isCreatingCollection}
+                  onChange={(event) => onChangeCollection(event.target.value)}
+                  value={collectionId}
+                >
+                  <option value="">No collection</option>
+                  {collections.map((collection) => (
+                    <option key={collection.id} value={collection.id}>
+                      {collection.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Create collection</span>
+                <div className="upload-location-modal__inline">
+                  <input
+                    disabled={isSaving || isCreatingCollection}
+                    maxLength={120}
+                    onChange={(event) => onChangeCollectionCreateName(event.target.value)}
+                    placeholder="Example: Policies"
+                    value={collectionCreateName}
+                  />
+                  <Button
+                    disabled={!canCreateCollection}
+                    onClick={onCreateCollection}
+                    variant="secondary"
+                  >
+                    {isCreatingCollection ? 'Adding...' : 'Add'}
+                  </Button>
+                </div>
+                {collectionCreateError && (
+                  <small className="field-error" role="alert">
+                    {collectionCreateError}
+                  </small>
+                )}
+              </label>
+            </div>
+          </div>
+        )}
+
+        <div className="upload-location-modal__section">
+          <div className="upload-location-modal__section-header">
+            <div>
+              <strong>Tags</strong>
+              <p className="muted-copy">Optional. Add simple labels to make files easier to find.</p>
+            </div>
+          </div>
+
+          <div className="upload-location-modal__inline">
+            <input
+              disabled={isSaving || isCreatingTag}
+              maxLength={60}
+              onChange={(event) => onChangeNewTagName(event.target.value)}
+              placeholder="Example: onboarding"
+              value={newTagName}
+            />
+            <Button disabled={!canCreateTag} onClick={onCreateTag} variant="secondary">
+              {isCreatingTag ? 'Adding...' : 'Add tag'}
+            </Button>
+          </div>
+          {tagCreateError && (
+            <p className="field-error" role="alert">
+              {tagCreateError}
+            </p>
+          )}
+
+          {tags.length > 0 ? (
+            <div className="upload-location-modal__tags">
+              {tags.map((tag) => {
+                const checked = selectedTagIds.includes(tag.id)
+
+                return (
+                  <label className={checked ? 'active' : ''} key={tag.id}>
+                    <input
+                      checked={checked}
+                      disabled={isSaving}
+                      onChange={() => onToggleTag(tag.id)}
+                      type="checkbox"
+                    />
+                    <span>{tag.name}</span>
+                  </label>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="muted-copy">No tags yet.</p>
+          )}
+        </div>
+
+        <div className="form-actions">
+          <Button disabled={isSaving} onClick={onClose} variant="secondary">
+            Review files
+          </Button>
+          <Button disabled={!canSave} onClick={onSave}>
+            {isSaving ? 'Saving...' : 'Save documents'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 function UploadJobProgressCard({ job, onDismiss }) {
   if (!job) return null
 
@@ -990,6 +1214,7 @@ export function Documents({ scope = 'organization' }) {
   const [knowledgeBaseCollections, setKnowledgeBaseCollections] = useState([])
   const [knowledgeBaseError, setKnowledgeBaseError] = useState(null)
   const [knowledgeBaseLoading, setKnowledgeBaseLoading] = useState(false)
+  const [knowledgeBaseTags, setKnowledgeBaseTags] = useState([])
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_DOCUMENT_PAGE_SIZE)
   const [pagination, setPagination] = useState(null)
@@ -1004,6 +1229,17 @@ export function Documents({ scope = 'organization' }) {
   const [zipSelectedPaths, setZipSelectedPaths] = useState([])
   const [uploadKnowledgeBaseId, setUploadKnowledgeBaseId] = useState('')
   const [uploadCollectionId, setUploadCollectionId] = useState('')
+  const [isUploadLocationModalOpen, setIsUploadLocationModalOpen] = useState(false)
+  const [newKnowledgeBaseName, setNewKnowledgeBaseName] = useState('')
+  const [newKnowledgeBaseError, setNewKnowledgeBaseError] = useState('')
+  const [isCreatingKnowledgeBase, setIsCreatingKnowledgeBase] = useState(false)
+  const [newCollectionName, setNewCollectionName] = useState('')
+  const [newCollectionError, setNewCollectionError] = useState('')
+  const [isCreatingCollection, setIsCreatingCollection] = useState(false)
+  const [newTagName, setNewTagName] = useState('')
+  const [newTagError, setNewTagError] = useState('')
+  const [isCreatingTag, setIsCreatingTag] = useState(false)
+  const [uploadTagIds, setUploadTagIds] = useState([])
 
   const supportedFileTypes = useMemo(
     () => ALLOWED_EXTENSIONS.map((extension) => extension.toUpperCase()).join(', '),
@@ -1098,8 +1334,10 @@ export function Documents({ scope = 'organization' }) {
     if (!organizationId || isPlatform || !canUploadDocuments) {
       setKnowledgeBases([])
       setKnowledgeBaseCollections([])
+      setKnowledgeBaseTags([])
       setUploadKnowledgeBaseId('')
       setUploadCollectionId('')
+      setUploadTagIds([])
       setKnowledgeBaseLoading(false)
       return undefined
     }
@@ -1131,6 +1369,34 @@ export function Documents({ scope = 'organization' }) {
       })
       .finally(() => {
         if (active) setKnowledgeBaseLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [canUploadDocuments, isPlatform, organizationId])
+
+  useEffect(() => {
+    let active = true
+
+    if (!organizationId || isPlatform || !canUploadDocuments) {
+      setKnowledgeBaseTags([])
+      setUploadTagIds([])
+      return undefined
+    }
+
+    listKnowledgeBaseTags(organizationId)
+      .then((tags) => {
+        if (!active) return
+        setKnowledgeBaseTags(tags)
+        setUploadTagIds((current) =>
+          current.filter((tagId) => tags.some((tag) => tag.id === tagId)),
+        )
+      })
+      .catch(() => {
+        if (!active) return
+        setKnowledgeBaseTags([])
+        setUploadTagIds([])
       })
 
     return () => {
@@ -1354,6 +1620,7 @@ export function Documents({ scope = 'organization' }) {
       const visibleSession = normalizeUploadSession(session)
       setUploadSession(visibleSession)
       setUploadJob(null)
+      setIsUploadLocationModalOpen(Boolean(visibleSession?.files?.length))
       notifications.success(
         `${visibleSession?.files.length ?? 0} file(s) ready for review.`,
       )
@@ -1385,6 +1652,7 @@ export function Documents({ scope = 'organization' }) {
       const visibleSession = normalizeUploadSession(session)
       setUploadSession(visibleSession)
       setUploadJob(null)
+      setIsUploadLocationModalOpen(Boolean(visibleSession?.files?.length))
       setZipReview(null)
       setZipSelectedPaths([])
       notifications.success(`${visibleSession?.files.length ?? 0} ZIP file(s) ready for review.`)
@@ -1413,7 +1681,11 @@ export function Documents({ scope = 'organization' }) {
         uploadSession.id,
         file.id,
       )
-      setUploadSession(normalizeUploadSession(session))
+      const nextSession = normalizeUploadSession(session)
+      setUploadSession(nextSession)
+      if (!nextSession) {
+        setIsUploadLocationModalOpen(false)
+      }
       setPreviewTarget((current) => (current?.id === file.id ? null : current))
       notifications.info(`${file.originalFilename} was removed.`)
     } catch (requestError) {
@@ -1444,8 +1716,10 @@ export function Documents({ scope = 'organization' }) {
       const job = await commitUploadSession(organizationId, uploadSession.id, {
         knowledgeBaseIds: uploadKnowledgeBaseId ? [uploadKnowledgeBaseId] : undefined,
         collectionIds: uploadCollectionId ? [uploadCollectionId] : undefined,
+        tagIds: uploadTagIds.length > 0 ? uploadTagIds : undefined,
       })
       setUploadJob(job)
+      setIsUploadLocationModalOpen(false)
       notifications.info('Saving started. Progress will update automatically.')
     } catch (requestError) {
       setError(requestError)
@@ -1457,6 +1731,138 @@ export function Documents({ scope = 'organization' }) {
       )
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleCreateUploadCollection() {
+    if (!organizationId || !uploadKnowledgeBaseId || isPlatform) return
+
+    const name = newCollectionName.trim().replace(/\s+/g, ' ')
+    if (name.length < 2) {
+      setNewCollectionError('Enter a collection name with at least 2 characters.')
+      return
+    }
+
+    if (!/^[A-Za-z0-9]+(?: [A-Za-z0-9]+)*$/.test(name)) {
+      setNewCollectionError('Use letters, numbers, and single spaces only.')
+      return
+    }
+
+    setIsCreatingCollection(true)
+    setNewCollectionError('')
+    setError(null)
+
+    try {
+      const collection = await createKnowledgeBaseCollection(
+        organizationId,
+        uploadKnowledgeBaseId,
+        { name },
+      )
+      setKnowledgeBaseCollections((current) => {
+        const withoutDuplicate = current.filter((item) => item.id !== collection.id)
+        return [collection, ...withoutDuplicate]
+      })
+      setUploadCollectionId(collection.id)
+      setNewCollectionName('')
+      notifications.success(`${collection.name} was created and selected.`)
+    } catch (requestError) {
+      const message = getDocumentErrorMessage(
+        requestError,
+        'We could not create this collection. Please try a different name.',
+      )
+      setNewCollectionError(message)
+      notifications.error(message)
+    } finally {
+      setIsCreatingCollection(false)
+    }
+  }
+
+  async function handleCreateUploadTag() {
+    if (!organizationId || isPlatform) return
+
+    const name = newTagName.trim().replace(/\s+/g, ' ')
+    if (name.length < 2) {
+      setNewTagError('Enter a tag with at least 2 characters.')
+      return
+    }
+
+    if (!/^[A-Za-z0-9]+(?:[- ][A-Za-z0-9]+)*$/.test(name)) {
+      setNewTagError('Use letters, numbers, spaces, or hyphens only.')
+      return
+    }
+
+    setIsCreatingTag(true)
+    setNewTagError('')
+    setError(null)
+
+    try {
+      const tag = await createKnowledgeBaseTag(organizationId, { name })
+      setKnowledgeBaseTags((current) => {
+        const withoutDuplicate = current.filter((item) => item.id !== tag.id)
+        return [tag, ...withoutDuplicate]
+      })
+      setUploadTagIds((current) =>
+        current.includes(tag.id) ? current : [...current, tag.id],
+      )
+      setNewTagName('')
+      notifications.success(`${tag.name} was added.`)
+    } catch (requestError) {
+      const message = getDocumentErrorMessage(
+        requestError,
+        'We could not add this tag. Please try a different name.',
+      )
+      setNewTagError(message)
+      notifications.error(message)
+    } finally {
+      setIsCreatingTag(false)
+    }
+  }
+
+  function toggleUploadTag(tagId) {
+    setUploadTagIds((current) =>
+      current.includes(tagId)
+        ? current.filter((currentTagId) => currentTagId !== tagId)
+        : [...current, tagId],
+    )
+  }
+
+  async function handleCreateUploadKnowledgeBase() {
+    if (!organizationId || isPlatform) return
+
+    const name = newKnowledgeBaseName.trim().replace(/\s+/g, ' ')
+    if (name.length < 2) {
+      setNewKnowledgeBaseError('Enter a Knowledge Base name with at least 2 characters.')
+      return
+    }
+
+    if (!/^[A-Za-z0-9]+(?: [A-Za-z0-9]+)*$/.test(name)) {
+      setNewKnowledgeBaseError('Use letters, numbers, and single spaces only.')
+      return
+    }
+
+    setIsCreatingKnowledgeBase(true)
+    setNewKnowledgeBaseError('')
+    setError(null)
+
+    try {
+      const knowledgeBase = await createKnowledgeBase(organizationId, { name })
+      setKnowledgeBases((current) => {
+        const withoutDuplicate = current.filter((item) => item.id !== knowledgeBase.id)
+        return [knowledgeBase, ...withoutDuplicate]
+      })
+      setUploadKnowledgeBaseId(knowledgeBase.id)
+      setUploadCollectionId('')
+      setNewKnowledgeBaseName('')
+      notifications.success(`${knowledgeBase.name} was created and selected.`)
+    } catch (requestError) {
+      const message = getDocumentErrorMessage(
+        requestError,
+        'We could not create this Knowledge Base. Please try a different name.',
+      )
+      setNewKnowledgeBaseError(message)
+      notifications.error(message)
+    } finally {
+      setIsCreatingKnowledgeBase(false)
     }
   }
 
@@ -1622,7 +2028,6 @@ export function Documents({ scope = 'organization' }) {
       <main className="page">
         <section className="empty-state">
           <div>
-            <p className="eyebrow">Role required</p>
             <h1>Documents are restricted</h1>
             <p>Your current role cannot access document management.</p>
           </div>
@@ -1636,7 +2041,6 @@ export function Documents({ scope = 'organization' }) {
       <main className="page">
         <section className="empty-state">
           <div>
-            <p className="eyebrow">Organization required</p>
             <h1>Select an organization</h1>
             <p>Documents are stored inside one organization at a time.</p>
           </div>
@@ -1649,14 +2053,11 @@ export function Documents({ scope = 'organization' }) {
     <main className="page page--wide page--documents">
       <header className="page-header">
         <div>
-          <p className="eyebrow">
-            {isPlatform ? 'Platform review' : 'File management'}
-          </p>
           <h1>{isPlatform ? 'Platform documents' : 'Documents'}</h1>
           <p>
             {isPlatform
-              ? 'Review organization-deleted files and permanently delete them only when required.'
-              : `Upload, preview, version, and manage files for ${selectedOrganization.organization.name}.`}
+              ? 'Manage uploaded files, format conversions, and storage across all platform organizations.'
+              : `Upload, preview, version, and manage files for ${selectedOrganization?.organization?.name ?? 'this organization'}.`}
           </p>
         </div>
         <RefreshIconButton
@@ -1696,60 +2097,6 @@ export function Documents({ scope = 'organization' }) {
 
       {canUploadDocuments && (
         <>
-          <section className="card upload-scope-card">
-            <div className="section-heading">
-              <div>
-                <span className="card__label">Save location</span>
-                <h2>Knowledge Base</h2>
-                <p>
-                  Choose where these documents should live. Collections are optional.
-                </p>
-              </div>
-            </div>
-            <div className="upload-scope-grid">
-              <label className="field">
-                <span>Knowledge Base *</span>
-                <select
-                  disabled={knowledgeBaseLoading || uploadJobActive}
-                  onChange={(event) => {
-                    setUploadKnowledgeBaseId(event.target.value)
-                    setUploadCollectionId('')
-                  }}
-                  value={uploadKnowledgeBaseId}
-                >
-                  <option value="">
-                    {knowledgeBaseLoading ? 'Loading...' : 'Select Knowledge Base'}
-                  </option>
-                  {knowledgeBases.map((knowledgeBase) => (
-                    <option key={knowledgeBase.id} value={knowledgeBase.id}>
-                      {knowledgeBase.name}
-                      {knowledgeBase.isDefault ? ' (default)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                <span>Collection</span>
-                <select
-                  disabled={
-                    !uploadKnowledgeBaseId ||
-                    knowledgeBaseCollections.length === 0 ||
-                    uploadJobActive
-                  }
-                  onChange={(event) => setUploadCollectionId(event.target.value)}
-                  value={uploadCollectionId}
-                >
-                  <option value="">No collection</option>
-                  {knowledgeBaseCollections.map((collection) => (
-                    <option key={collection.id} value={collection.id}>
-                      {collection.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </section>
-
           <section
             className={`document-dropzone ${isDragging ? 'document-dropzone--active' : ''}`}
             onClick={() => fileInputRef.current?.click()}
@@ -1840,6 +2187,48 @@ export function Documents({ scope = 'organization' }) {
         uploadJob={uploadJob}
       />
 
+      <UploadLocationModal
+        collectionId={uploadCollectionId}
+        collectionCreateError={newCollectionError}
+        collectionCreateName={newCollectionName}
+        collections={knowledgeBaseCollections}
+        createError={newKnowledgeBaseError}
+        createName={newKnowledgeBaseName}
+        isCreatingCollection={isCreatingCollection}
+        isCreatingKnowledgeBase={isCreatingKnowledgeBase}
+        isCreatingTag={isCreatingTag}
+        isLoading={knowledgeBaseLoading}
+        isOpen={isUploadLocationModalOpen && Boolean(uploadSession) && !uploadJobActive}
+        isSaving={isSaving}
+        knowledgeBaseId={uploadKnowledgeBaseId}
+        knowledgeBases={knowledgeBases}
+        newTagName={newTagName}
+        onChangeCollection={setUploadCollectionId}
+        onChangeCollectionCreateName={(value) => {
+          setNewCollectionName(value)
+          setNewCollectionError('')
+        }}
+        onChangeCreateName={(value) => {
+          setNewKnowledgeBaseName(value)
+          setNewKnowledgeBaseError('')
+        }}
+        onChangeKnowledgeBase={setUploadKnowledgeBaseId}
+        onChangeNewTagName={(value) => {
+          setNewTagName(value)
+          setNewTagError('')
+        }}
+        onCreateKnowledgeBase={() => void handleCreateUploadKnowledgeBase()}
+        onCreateCollection={() => void handleCreateUploadCollection()}
+        onCreateTag={() => void handleCreateUploadTag()}
+        onClose={() => setIsUploadLocationModalOpen(false)}
+        onSave={() => void handleCommitUpload()}
+        onToggleTag={toggleUploadTag}
+        selectedTagIds={uploadTagIds}
+        stagedCount={getVisibleStagedFiles(uploadSession).length}
+        tags={knowledgeBaseTags}
+        tagCreateError={newTagError}
+      />
+
       <UploadJobProgressCard
         job={uploadJob}
         onDismiss={() => {
@@ -1847,136 +2236,127 @@ export function Documents({ scope = 'organization' }) {
         }}
       />
 
-      <section
-        className={`card filter-bar document-filter-bar ${
-          isPlatform ? 'document-filter-bar--platform' : ''
-        }`}
-      >
-        <Input
-          label="Search documents"
-          onChange={(event) =>
-            updateFilters({ search: event.target.value })
-          }
-          placeholder="file, uploader, organization..."
-          value={filters.search}
-        />
-        {isPlatform ? (
-          <>
-            <label className="field">
-              <span className="field__label">Organization</span>
-              <select
-                onChange={(event) =>
-                  updateFilters({
-                    organizationId: event.target.value,
-                  })
-                }
-                value={filters.organizationId}
-              >
-                <option value="">All organizations</option>
-                {(access?.organizations ?? []).map(({ organization }) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span className="field__label">Status</span>
-              <select
-                onChange={(event) =>
-                  updateFilters({
-                    status: event.target.value,
-                  })
-                }
-                value={filters.status}
-              >
-                <option value="">All non-purged</option>
-                <option value="ACTIVE">Active</option>
-                <option value="SOFT_DELETED_BY_USER">User deleted</option>
-                <option value="SOFT_DELETED_BY_ORG">Organization deleted</option>
-                <option value="PURGED">Purged</option>
-              </select>
-            </label>
-            <label className="field">
-              <span className="field__label">Updated</span>
-              <select
-                onChange={(event) =>
-                  updateFilters({
-                    updatedRange: event.target.value,
-                  })
-                }
-                value={filters.updatedRange}
-              >
-                <option value="">Any time</option>
-                <option value="24h">Last 24 hours</option>
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
-              </select>
-            </label>
-            <label className="field">
-              <span className="field__label">Sort</span>
-              <select
-                onChange={(event) =>
-                  updateFilters({ sort: event.target.value })
-                }
-                value={filters.sort}
-              >
-                <option value="newest">Newest first</option>
-                <option value="oldest">Oldest first</option>
-              </select>
-            </label>
-          </>
-        ) : (
-          <>
-            <label className="field">
-              <span className="field__label">Status</span>
-              <select
-                onChange={(event) =>
-                  updateFilters({ view: event.target.value })
-                }
-                value={filters.view}
-              >
-                <option value="active">Active files</option>
-                <option value="trash">Organization trash</option>
-              </select>
-            </label>
-            <label className="field">
-              <span className="field__label">Updated</span>
-              <select
-                onChange={(event) =>
-                  updateFilters({
-                    updatedRange: event.target.value,
-                  })
-                }
-                value={filters.updatedRange}
-              >
-                <option value="">Any time</option>
-                <option value="24h">Last 24 hours</option>
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
-              </select>
-            </label>
-            <label className="field">
-              <span className="field__label">Sort</span>
-              <select
-                onChange={(event) =>
-                  updateFilters({ sort: event.target.value })
-                }
-                value={filters.sort}
-              >
-                <option value="newest">Newest first</option>
-                <option value="oldest">Oldest first</option>
-              </select>
-            </label>
-          </>
-        )}
-      </section>
-
       <section className="card">
-        <div className="section-heading">
-          <div>
-            <span className="card__label">File directory</span>
-            <h2>{documentCount} documents</h2>
+        <div className="table-toolbar">
+          <div className="table-toolbar__search">
+            <input
+              aria-label="Search documents"
+              className="table-toolbar__input"
+              onChange={(event) =>
+                updateFilters({ search: event.target.value })
+              }
+              placeholder="Search by file name, uploader..."
+              type="search"
+              value={filters.search}
+            />
+          </div>
+          <div className="table-toolbar__filters">
+            {isPlatform ? (
+              <>
+                <select
+                  aria-label="Organization"
+                  className="table-toolbar__select"
+                  onChange={(event) =>
+                    updateFilters({
+                      organizationId: event.target.value,
+                    })
+                  }
+                  value={filters.organizationId}
+                >
+                  <option value="">All organizations</option>
+                  {(access?.organizations ?? []).map(({ organization }) => (
+                    <option key={organization.id} value={organization.id}>
+                      {organization.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Status"
+                  className="table-toolbar__select"
+                  onChange={(event) =>
+                    updateFilters({
+                      status: event.target.value,
+                    })
+                  }
+                  value={filters.status}
+                >
+                  <option value="">All non-purged</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="SOFT_DELETED_BY_USER">User deleted</option>
+                  <option value="SOFT_DELETED_BY_ORG">Org deleted</option>
+                  <option value="PURGED">Purged</option>
+                </select>
+                <select
+                  aria-label="Updated"
+                  className="table-toolbar__select"
+                  onChange={(event) =>
+                    updateFilters({
+                      updatedRange: event.target.value,
+                    })
+                  }
+                  value={filters.updatedRange}
+                >
+                  <option value="">Any time</option>
+                  <option value="24h">Last 24h</option>
+                  <option value="7d">Last 7d</option>
+                  <option value="30d">Last 30d</option>
+                </select>
+                <select
+                  aria-label="Sort"
+                  className="table-toolbar__select"
+                  onChange={(event) =>
+                    updateFilters({ sort: event.target.value })
+                  }
+                  value={filters.sort}
+                >
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                </select>
+              </>
+            ) : (
+              <>
+                <select
+                  aria-label="File status"
+                  className="table-toolbar__select"
+                  onChange={(event) =>
+                    updateFilters({ view: event.target.value })
+                  }
+                  value={filters.view}
+                >
+                  <option value="active">Active files</option>
+                  <option value="trash">Trash</option>
+                </select>
+                <select
+                  aria-label="Updated time"
+                  className="table-toolbar__select"
+                  onChange={(event) =>
+                    updateFilters({
+                      updatedRange: event.target.value,
+                    })
+                  }
+                  value={filters.updatedRange}
+                >
+                  <option value="">Any time</option>
+                  <option value="24h">Last 24h</option>
+                  <option value="7d">Last 7d</option>
+                  <option value="30d">Last 30d</option>
+                </select>
+                <select
+                  aria-label="Sort"
+                  className="table-toolbar__select"
+                  onChange={(event) =>
+                    updateFilters({ sort: event.target.value })
+                  }
+                  value={filters.sort}
+                >
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                </select>
+              </>
+            )}
+            <span className="table-toolbar__counter">
+              {documentCount} {documentCount === 1 ? 'document' : 'documents'}
+            </span>
           </div>
         </div>
 
@@ -2035,9 +2415,7 @@ export function Documents({ scope = 'organization' }) {
                   role="cell"
                 >
                   <strong>{(document.extension ?? 'file').toUpperCase()}</strong>
-                  <small title={document.mimeType}>
-                    {getFriendlyDocumentType(document)}
-                  </small>
+                  <small title={document.mimeType}>{document.mimeType}</small>
                 </span>
                 <span
                   className="document-cell document-cell--size"

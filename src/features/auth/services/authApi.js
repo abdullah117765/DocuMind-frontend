@@ -40,6 +40,29 @@ export function getCurrentAuthentication() {
   }).then(getResponseData)
 }
 
+export function getAccountSettings() {
+  return apiRequest('/auth/account-settings', {
+    cache: 'no-store',
+    requiresAuth: true,
+  }).then(getResponseData)
+}
+
+export function updateProfile(values) {
+  return csrfRequest('/auth/profile', {
+    method: 'PATCH',
+    requiresAuth: true,
+    body: values,
+  }).then(getResponseData)
+}
+
+export function changePassword(values) {
+  return csrfRequest('/auth/password', {
+    method: 'PATCH',
+    requiresAuth: true,
+    body: values,
+  }).then(getResponseData)
+}
+
 export function refreshSession() {
   if (!refreshPromise) {
     refreshPromise = csrfRequest('/auth/refresh', {

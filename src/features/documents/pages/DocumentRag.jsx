@@ -4,6 +4,7 @@ import { Button } from '../../../shared/components/Button/Button.jsx'
 import { Input } from '../../../shared/components/Input/Input.jsx'
 import { ListPagination } from '../../../shared/components/ListPagination.jsx'
 import { Loader } from '../../../shared/components/Loader/Loader.jsx'
+import { Modal } from '../../../shared/components/Modal/Modal.jsx'
 import { RefreshIconButton } from '../../../shared/components/RefreshIconButton.jsx'
 import { useNotifications } from '../../../shared/useNotifications.js'
 import { useAccessControl } from '../../access-control/hooks/useAccessControl.js'
@@ -12,6 +13,7 @@ import {
   deleteRagChat,
   getRagChat,
   getOrganizationDocumentContentUrl,
+  getOrganizationDocumentVersionCitationPreviewUrl,
   getRagDocumentStatuses,
   listRagChats,
   listOrganizationDocuments,
@@ -279,6 +281,18 @@ function getSourceVersion(source) {
   return source?.version_number ?? source?.versionNumber ?? null
 }
 
+function getSourceVersionId(source) {
+  const metadata = getSourceMetadata(source)
+
+  return (
+    source?.version_id ||
+    source?.versionId ||
+    metadata.version_id ||
+    metadata.versionId ||
+    ''
+  )
+}
+
 function getSourceScore(source) {
   const rawScore = source?.score
 
@@ -293,6 +307,83 @@ function getSourceMetadata(source) {
   return source?.metadata && typeof source.metadata === 'object'
     ? source.metadata
     : {}
+}
+
+function getSourcePageNumber(source) {
+  const metadata = getSourceMetadata(source)
+  const candidates = [
+    source?.page_number,
+    source?.pageNumber,
+    metadata.page_number,
+    metadata.pageNumber,
+  ]
+
+  for (const value of candidates) {
+    const pageNumber = toPositiveInteger(value)
+
+    if (pageNumber !== null) return pageNumber
+  }
+
+  return null
+}
+
+function getSourceHighlightBoxes(source) {
+  const metadata = getSourceMetadata(source)
+  const candidates = [
+    source?.highlight_boxes,
+    source?.highlightBoxes,
+    metadata.highlight_boxes,
+    metadata.highlightBoxes,
+  ]
+  const boxes = candidates.find((value) => Array.isArray(value))
+
+  if (!Array.isArray(boxes)) return []
+
+  return boxes
+    .slice(0, 8)
+    .map((box) => {
+      if (!box || typeof box !== 'object') return null
+
+      return {
+        page_number: box.page_number ?? box.pageNumber ?? null,
+        x0: box.x0 ?? null,
+        y0: box.y0 ?? null,
+        x1: box.x1 ?? null,
+        y1: box.y1 ?? null,
+        page_width: box.page_width ?? box.pageWidth ?? null,
+        page_height: box.page_height ?? box.pageHeight ?? null,
+      }
+    })
+    .filter(Boolean)
+}
+
+function getCitationUrl(organizationId, source) {
+  const documentId = getSourceDocumentId(source)
+  if (!organizationId || !documentId) return ''
+
+  const versionId = getSourceVersionId(source)
+  const pageNumber = getSourcePageNumber(source)
+  const searchText = getSourceSnippet(source, 90)
+  const highlightBoxes = getSourceHighlightBoxes(source)
+  const baseUrl = versionId
+    ? getOrganizationDocumentVersionCitationPreviewUrl(organizationId, documentId, versionId)
+    : getOrganizationDocumentContentUrl(organizationId, documentId)
+  const queryParts = []
+  const hashParts = []
+
+  if (versionId && highlightBoxes.length > 0) {
+    queryParts.push(`highlights=${encodeURIComponent(JSON.stringify(highlightBoxes))}`)
+  }
+  if (versionId && pageNumber) {
+    queryParts.push(`page=${pageNumber}`)
+  }
+  if (pageNumber) hashParts.push(`page=${pageNumber}`)
+  if (searchText) hashParts.push(`search=${encodeURIComponent(searchText)}`)
+
+  const query = queryParts.length ? `?${queryParts.join('&')}` : ''
+  const hash = hashParts.length ? `#${hashParts.join('&')}` : ''
+
+  return `${baseUrl}${query}${hash}`
 }
 
 function toPositiveInteger(value) {
@@ -384,8 +475,7 @@ function getSourceLocationLabel(source) {
     return directLabel.trim()
   }
 
-  const pageNumber =
-    source?.page_number ?? source?.pageNumber ?? metadata.page_number
+  const pageNumber = getSourcePageNumber(source)
   if (pageNumber) return `Page ${pageNumber}`
 
   const slideNumber =
@@ -533,6 +623,7 @@ function SourceDocumentCard({ organizationId, result }) {
   const fileType = getSourceFileType(result)
   const locationLabel = getSourceLocationLabel(result)
   const score = getSourceScore(result)
+  const citationUrl = getCitationUrl(organizationId, result)
   const detail = [
     getSourceOriginalFilename(result),
     locationLabel,
@@ -560,11 +651,11 @@ function SourceDocumentCard({ organizationId, result }) {
       {documentId && (
         <a
           className="rag-source-link"
-          href={getOrganizationDocumentContentUrl(organizationId, documentId)}
+          href={citationUrl}
           rel="noreferrer"
           target="_blank"
         >
-          <RagIcon name="open" size={14} /> Open file
+          <RagIcon name="open" size={14} /> Open location
         </a>
       )}
     </article>
@@ -581,6 +672,7 @@ function SourcePill({ organizationId, source, index }) {
   const fileType = getSourceFileType(source)
   const snippet = getSourceSnippet(source)
   const citationNumber = getCitationNumber(source, index)
+  const citationUrl = getCitationUrl(organizationId, source)
 
   if (!sourceDocumentId) {
     return (
@@ -605,7 +697,7 @@ function SourcePill({ organizationId, source, index }) {
   return (
     <a
       className="rag-citation-card"
-      href={getOrganizationDocumentContentUrl(organizationId, sourceDocumentId)}
+      href={citationUrl}
       key={`${sourceDocumentId}-${getSourceLocationLabel(source)}-${index}`}
       rel="noreferrer"
       title={[getSourceDisplayLabel(source), snippet].filter(Boolean).join(' — ')}
@@ -666,9 +758,60 @@ function CitationToggle({ organizationId, sources }) {
   )
 }
 
+function isUnavailableAnswer(text = '') {
+  const normalized = String(text).trim().toLowerCase()
+
+  return (
+    normalized === 'not available in the selected documents.' ||
+    normalized === 'not available in the selected documents' ||
+    normalized.startsWith('not available') ||
+    normalized.includes('could not find this in the selected documents') ||
+    normalized.includes('no relevant documents were found')
+  )
+}
+
+function RelatedInfoToggle({ organizationId, sources }) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  if (!sources.length) {
+    return (
+      <p className="rag-related-info-empty">
+        No related information was found in the selected files.
+      </p>
+    )
+  }
+
+  return (
+    <div className="rag-citations rag-related-info">
+      <button
+        className="rag-citation-button"
+        onClick={() => setIsOpen((current) => !current)}
+        type="button"
+      >
+        <RagIcon name="search" size={14} />
+        {isOpen ? 'Hide related info' : `Show related info (${sources.length})`}
+      </button>
+
+      {isOpen && (
+        <div className="rag-message__sources" aria-label="Related document information">
+          {sources.map((source, index) => (
+            <SourcePill
+              index={index}
+              key={`${getSourceDocumentId(source)}-${getSourceLocationLabel(source)}-${index}`}
+              organizationId={organizationId}
+              source={source}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ChatMessage({ message, organizationId }) {
   const isUser = message.role === 'USER'
   const sources = getSourceDocuments({ sources: message.sources ?? [] }, message.content)
+  const unavailable = !isUser && isUnavailableAnswer(message.content)
 
   return (
     <article
@@ -682,7 +825,11 @@ function ChatMessage({ message, organizationId }) {
         {isUser ? <p>{message.content}</p> : <AnswerMarkdown text={message.content} />}
       </div>
       {!isUser && (
-        <CitationToggle organizationId={organizationId} sources={sources} />
+        unavailable ? (
+          <RelatedInfoToggle organizationId={organizationId} sources={sources} />
+        ) : (
+          <CitationToggle organizationId={organizationId} sources={sources} />
+        )
       )}
       {false && !isUser && sources.length > 0 && (
         <div className="rag-message__sources" aria-label="Answer sources">
@@ -708,10 +855,7 @@ function ChatMessage({ message, organizationId }) {
             return (
               <a
                 className="rag-source-pill"
-                href={getOrganizationDocumentContentUrl(
-                  organizationId,
-                  sourceDocumentId,
-                )}
+                href={getCitationUrl(organizationId, source)}
                 key={`${sourceDocumentId}-${getSourceLocationLabel(source)}-${index}`}
                 rel="noreferrer"
                 title={label}
@@ -939,6 +1083,7 @@ export function DocumentRag() {
   const [currentChatId, setCurrentChatId] = useState('')
   const [isChatsLoading, setIsChatsLoading] = useState(false)
   const [isOpeningChat, setIsOpeningChat] = useState(false)
+  const [chatDeleteTargetId, setChatDeleteTargetId] = useState('')
 
   const statusByDocumentId = useMemo(
     () =>
@@ -1274,9 +1419,6 @@ export function DocumentRag() {
   async function handleDeleteChat(chatSessionId) {
     if (!chatSessionId) return
 
-    const confirmed = window.confirm('Delete this chat from your history?')
-    if (!confirmed) return
-
     try {
       await deleteRagChat(organizationId, chatSessionId)
       setChatSessions((current) =>
@@ -1295,6 +1437,8 @@ export function DocumentRag() {
           'We could not delete that chat. Please try again.',
         ),
       )
+    } finally {
+      setChatDeleteTargetId('')
     }
   }
 
@@ -1427,6 +1571,7 @@ export function DocumentRag() {
     try {
       const statuses = await reindexRagDocuments(organizationId, {
         documentIds: targetIds?.length ? targetIds : undefined,
+        force: true,
       })
 
       setDocumentStatuses((currentStatuses) =>
@@ -1576,7 +1721,7 @@ export function DocumentRag() {
                     </button>
                     <button
                       className="rag-chat-item__delete"
-                      onClick={() => void handleDeleteChat(chat.id)}
+                      onClick={() => setChatDeleteTargetId(chat.id)}
                       title="Delete chat"
                       type="button"
                     >
@@ -1654,9 +1799,15 @@ export function DocumentRag() {
               </div>
               {scope === 'selected' ? (
                 <p className="rag-selected-summary">
-                  {selectedCount} file{selectedCount === 1 ? '' : 's'} selected
+                  <span>
+                    {selectedCount} file{selectedCount === 1 ? '' : 's'} selected
+                  </span>
                   {selectedCount > 0 && (
-                    <button onClick={() => setSelectedDocumentIds([])} type="button">
+                    <button
+                      className="rag-clear-selection"
+                      onClick={() => setSelectedDocumentIds([])}
+                      type="button"
+                    >
                       Clear
                     </button>
                   )}
@@ -1665,14 +1816,27 @@ export function DocumentRag() {
                 <p className="rag-selected-summary">
                   AI will search every readable file in this organization.
                 </p>
+              ) : scope === 'collection' ? (
+                <p className="rag-selected-summary">
+                  Choose a Knowledge Base first, then select the Collections you want AI to search.
+                </p>
               ) : (
                 <p className="rag-selected-summary">
-                  AI will search the selected Knowledge Base scope.
+                  AI will search only the selected Knowledge Bases.
                 </p>
               )}
               {(scope === 'knowledge_base' || scope === 'collection') && (
                 <div className="rag-scope-picker">
-                  <span className="field__label">Knowledge Bases</span>
+                  <span className="field__label">
+                    {scope === 'collection'
+                      ? 'Step 1: Choose Knowledge Base'
+                      : 'Knowledge Bases'}
+                  </span>
+                  {scope === 'collection' && (
+                    <p className="field__hint">
+                      Collections will appear from the Knowledge Base you select here.
+                    </p>
+                  )}
                   {knowledgeBases.length === 0 ? (
                     <p className="field__hint">
                       No Knowledge Bases are available yet.
@@ -1705,7 +1869,7 @@ export function DocumentRag() {
               )}
               {scope === 'collection' && selectedKnowledgeBaseIds.length > 0 && (
                 <div className="rag-scope-picker">
-                  <span className="field__label">Collections</span>
+                  <span className="field__label">Step 2: Choose Collections</span>
                   {knowledgeBaseCollections.length === 0 ? (
                     <p className="field__hint">
                       No Collections are available for the selected Knowledge Base.
@@ -2133,10 +2297,17 @@ export function DocumentRag() {
                 </div>
               </div>
               <AnswerMarkdown text={searchResponse.answer} />
-              <CitationToggle
-                organizationId={organizationId}
-                sources={sourceDocuments}
-              />
+              {isUnavailableAnswer(searchResponse.answer) ? (
+                <RelatedInfoToggle
+                  organizationId={organizationId}
+                  sources={sourceDocuments}
+                />
+              ) : (
+                <CitationToggle
+                  organizationId={organizationId}
+                  sources={sourceDocuments}
+                />
+              )}
               {false && sourceDocuments.length > 0 && (
                 <div className="rag-source-list">
                   {sourceDocuments.map((source, index) => {
@@ -2149,12 +2320,9 @@ export function DocumentRag() {
                     return (
                       <a
                         className="rag-source-pill"
-                        href={getOrganizationDocumentContentUrl(
-                          organizationId,
-                          sourceDocumentId,
-                        )}
+                        href={getCitationUrl(organizationId, source)}
                         key={`${sourceDocumentId}-${getSourceLocationLabel(source)}-${index}`}
-                        rel="noreferrer"
+                        rel="noopener noreferrer"
                         title={label}
                         target="_blank"
                       >
@@ -2209,6 +2377,34 @@ export function DocumentRag() {
       )}
         </div>
       </section>
+      <Modal
+        isOpen={Boolean(chatDeleteTargetId)}
+        onClose={() => setChatDeleteTargetId('')}
+        title="Delete chat"
+      >
+        <div className="modal__body">
+          <p>
+            This removes the chat from your history. Your documents will not be
+            changed.
+          </p>
+        </div>
+        <footer className="modal__actions">
+          <Button
+            disabled={isOpeningChat}
+            onClick={() => setChatDeleteTargetId('')}
+            variant="secondary"
+          >
+            Cancel
+          </Button>
+          <Button
+            disabled={!chatDeleteTargetId}
+            onClick={() => void handleDeleteChat(chatDeleteTargetId)}
+            variant="danger"
+          >
+            Delete chat
+          </Button>
+        </footer>
+      </Modal>
     </main>
   )
 }
